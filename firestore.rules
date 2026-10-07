@@ -1,0 +1,61 @@
+rules_version = '2';
+
+// シフトボードのデータを守るルール。
+// Firebase コンソール → Firestore Database → ルール にこの内容を貼り付けて「公開」します。
+// 管理者は、下のアドレスで Google ログインした人だけ（firebase-config.js の adminEmail と同じ）。
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider == "google.com"
+        && request.auth.token.email_verified == true
+        && request.auth.token.email == "masaru20040201@gmail.com";
+    }
+    // 招待リンクで参加した端末（匿名ログイン）には sessions/<uid> がある
+    function isMember() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/sessions/$(request.auth.uid));
+    }
+    function myStaffId() {
+      return get(/databases/$(database)/documents/sessions/$(request.auth.uid)).data.staffId;
+    }
+    function canRead() {
+      return isAdmin() || isMember();
+    }
+
+    // スタッフの名前と色、シフト、お店の設定と必要人数: 参加者が読み、店長だけが書く
+    match /staff/{id}     { allow read: if canRead(); allow write: if isAdmin(); }
+    match /shifts/{id}    { allow read: if canRead(); allow write: if isAdmin(); }
+    match /settings/{id}  { allow read: if canRead(); allow write: if isAdmin(); }
+
+    // 時給・メール、招待リンクの合言葉: 店長だけ
+    match /private/{id}     { allow read, write: if isAdmin(); }
+    match /staffTokens/{id} { allow read, write: if isAdmin(); }
+
+    // 希望シフト（文書 ID は <スタッフID>_<YYYY-MM>）: 参加者が読み、スタッフは自分の分だけ書ける
+    match /requests/{id} {
+      allow read: if canRead();
+      allow create, update: if isAdmin() || (
+        isMember()
+        && request.resource.data.staffId == myStaffId()
+        && request.resource.data.month is string
+        && id == request.resource.data.staffId + "_" + request.resource.data.month
+      );
+      allow delete: if isAdmin();
+    }
+
+    // 参加の記録: 招待リンクの合言葉が正しいときだけ、自分の分を作れる
+    match /sessions/{uid} {
+      allow get: if isAdmin() || (request.auth != null && request.auth.uid == uid);
+      allow list, delete: if isAdmin();
+      allow create, update: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(["staffId", "token", "createdAt"])
+        && request.resource.data.staffId is string
+        && request.resource.data.token is string
+        && exists(/databases/$(database)/documents/staffTokens/$(request.resource.data.staffId))
+        && get(/databases/$(database)/documents/staffTokens/$(request.resource.data.staffId)).data.token == request.resource.data.token;
+    }
+  }
+}
