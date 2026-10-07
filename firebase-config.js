@@ -2,12 +2,12 @@
 // ここに入る値は公開されても問題ないものです（データは firestore.rules で守ります）。
 window.SHIFT_CONFIG = {
   firebase: {
-    apiKey: "",
-    authDomain: "",
-    projectId: "",
-    storageBucket: "",
-    messagingSenderId: "",
-    appId: "",
+    apiKey: "AIzaSyCvaF_a6ApwlZjhCjomXP6aq8cPA0-SIXU",
+    authDomain: "shift-99986.firebaseapp.com",
+    projectId: "shift-99986",
+    storageBucket: "shift-99986.firebasestorage.app",
+    messagingSenderId: "1074474612512",
+    appId: "1:1074474612512:web:8bf9bf5305ea8effa4c945",
   },
   // 管理者（店長）の ID。Google でログインすると画面に表示されます。firestore.rules の ADMIN_UID と同じ値にします。
   adminUid: "",
