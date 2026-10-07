@@ -1,9 +1,3 @@
-<!doctype html>
-<html lang="ja">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="robots" content="noindex">
 <title>シフトボード</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -50,10 +44,6 @@
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
-:root { color-scheme: light; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
-body { margin: 0; }
-img { max-width: 100%; }
-[hidden] { display: none !important; }
 body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.6; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
@@ -68,15 +58,7 @@ h1, h2, h3 { text-wrap: balance; margin: 0; }
 .brand { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .brand h1 { font-family: var(--f-display); font-weight: 400; font-size: 22px; letter-spacing: .02em; }
 .brand .store { color: var(--muted); font-weight: 500; }
-.acct { margin-left: auto; display: flex; align-items: center; gap: 8px; }
-.gate { max-width: 560px; margin: 24px auto; display: flex; flex-direction: column; gap: 12px; }
-.gate h2 { font-family: var(--f-display); font-weight: 400; font-size: 22px; }
-.gate p { margin: 0; }
-.gate-admin { border-top: 1px solid var(--line); padding-top: 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
-.uidbox { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: var(--sunken); color: var(--ink); min-width: 0; flex: 1 1 16em; }
-.invite { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; grid-column: 2 / 4; }
-.invite input { flex: 1 1 14em; min-width: 0; border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; font-size: 12px; background: var(--sunken); color: var(--ink); font-family: var(--f-mono); }
-.role { font-size: 12px; letter-spacing: .08em; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.role { margin-left: auto; font-size: 12px; letter-spacing: .08em; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
 .role.admin { border-color: var(--accent); color: var(--accent); }
 .tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
 .tabs button { border: 0; background: none; padding: 8px 14px 10px; border-bottom: 3px solid transparent; color: var(--muted); font-weight: 500; white-space: nowrap; }
@@ -199,7 +181,7 @@ table { border-collapse: collapse; width: 100%; }
 
 .form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .form .full { grid-column: 1 / -1; }
-label.f, span.f { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); font-weight: 500; min-width: 0; }
+label.f { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); font-weight: 500; min-width: 0; }
 .f input, .f select, .f textarea { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 7px 9px; color: var(--ink); width: 100%; min-width: 0; }
 .f textarea { min-height: 64px; resize: vertical; }
 .hint { font-size: 12px; color: var(--muted); }
@@ -253,11 +235,10 @@ label.f, span.f { display: flex; flex-direction: column; gap: 4px; font-size: 12
 .toast.err { background: var(--ng); color: #fff; }
 @media (prefers-reduced-motion: no-preference) { .toast { animation: up .2s ease-out; } @keyframes up { from { transform: translate(-50%, 8px); opacity: 0; } } }
 </style>
-</head>
-<body>
+
 <header class="top">
   <div class="top-in">
-    <div class="brand"><h1>シフトボード</h1><span class="store" id="store-name"></span><span class="acct" id="acct"><span class="role">読み込み中</span></span></div>
+    <div class="brand"><h1>シフトボード</h1><span class="store" id="store-name"></span><span class="role" id="role">読み込み中</span></div>
     <nav class="tabs" role="tablist" id="tabs"></nav>
   </div>
 </header>
@@ -265,14 +246,10 @@ label.f, span.f { display: flex; flex-direction: column; gap: 4px; font-size: 12
 <div id="toast-root"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js" integrity="sha384-AQ3POAMqIhwS81FrUH95ekxqBZHeP5tG2JfEL3+7GuTtfRLWnrRh32UxwzM+//A9" crossorigin="anonymous"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js" integrity="sha384-TnlRYaR4JYz/lpaGuaiU61PjNberSA4vjLjtF+oRC/IkohkJqnWxw5EmDSOt1vA1" crossorigin="anonymous"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js" integrity="sha384-qn4Jh88HhJA8dplNQyGjOh9OGI4izVhrfj/qIFgaKcdgOE06pXqIKGlsCILZcLAC" crossorigin="anonymous"></script>
-<script src="firebase-config.js"></script>
 <script>
 "use strict";
 const GCAL = "Google Calendar";
-window.addEventListener("hashchange", () => { if (/^#join=/.test(location.hash)) location.reload(); });
+const APP_URL = "https://claude.ai/artifact/RSUbvNbKGrUHdXPQVzTSP2";
 const WD = ["日", "月", "火", "水", "木", "金", "土"];
 const TABS = [["cal", "カレンダー"], ["req", "希望シフト"], ["sum", "勤務時間・給料"], ["staff", "スタッフ・設定"]];
 const MARK = { ok: "〇", part: "△", ng: "×" };
@@ -312,16 +289,16 @@ const pref = { get(k, d) { try { return localStorage.getItem("sb." + k) ?? d; } 
 
 const now = new Date();
 const S = {
-  dbState: "loading", dbErr: "", db: null, auth: null, authUser: null, adminUid: "", gate: null,
-  admin: false, role: "guest", me: "", tokens: {}, invite: null,
-  staff: [], shifts: [], reqs: [], settings: { storeName: "", deadlineDay: 20, open: 8, close: 24 },
+  dbState: "loading", dbErr: "", db: null, mcp: null, user: null,
+  admin: false, canWrite: null, uid: null,
+  staff: [], shifts: [], reqs: [], settings: { storeName: "", deadlineDay: 20, open: 8, close: 24 }, gsync: {},
   tab: pref.get("tab", "cal"), calMode: pref.get("calMode", "month"), sel: ymd(now),
   form: blankForm(), confirmDel: null,
   req: { staffId: pref.get("me", ""), days: {}, note: "", dirty: false },
   sf: { id: null, name: "", wage: "", color: 0, email: "" }, setf: null, priv: {},
   staffing: { byDow: {} }, need: null, needDow: 1,
   auto: { skipPast: true, plan: null, running: false, msg: null },
-  gcal: { who: null },
+  gcal: { who: "all", invite: false, confirm: null, running: false, msg: null },
   toast: null,
 };
 function blankForm() { return { editing: null, staffId: "", start: "10:00", end: "17:00", breakMin: 45, breakTouched: false, note: "" }; }
@@ -372,43 +349,22 @@ const shortText = s => `${fmtT(s.from)}–${fmtT(s.to)} ${s.short}人不足`;
 function render() {
   const fa = document.activeElement, fid = fa && fa.id, selStart = fa && "selectionStart" in fa ? (() => { try { return fa.selectionStart; } catch { return null; } })() : null;
   document.getElementById("store-name").textContent = S.settings.storeName || "";
-  const meName = S.role === "member" ? (staffById(S.me)?.name || "") : "";
-  document.getElementById("acct").innerHTML = S.dbState === "loading" ? `<span class="role">読み込み中</span>`
-    : S.admin ? `<span class="role admin">管理者</span><button class="btn small" id="logout" data-act="logout">ログアウト</button>`
-    : S.role === "member" ? `<span class="role">スタッフ${meName ? "：" + esc(meName) : ""}</span>`
-    : S.authUser && !S.authUser.isAnonymous ? `<button class="btn small" id="logout" data-act="logout">ログアウト</button>` : "";
-  const ready = S.dbState === "ready";
-  const tabs = !ready ? [] : S.admin ? [TABS[0], ["reqcal", "希望カレンダー"], ...TABS.slice(1)] : TABS;
-  if (S.tab === "reqcal" && !S.admin && ready) S.tab = "cal";
+  const role = document.getElementById("role");
+  role.textContent = S.dbState === "loading" ? "読み込み中" : S.admin ? "管理者" : "スタッフ";
+  role.className = "role" + (S.admin ? " admin" : "");
+  const tabs = S.admin ? [TABS[0], ["reqcal", "希望カレンダー"], ...TABS.slice(1)] : TABS;
+  if (S.tab === "reqcal" && !S.admin && S.dbState !== "loading") S.tab = "cal";
   document.getElementById("tabs").innerHTML = tabs.map(([k, l]) => `<button role="tab" id="tab-${k}" aria-selected="${S.tab === k}" data-act="tab" data-v="${k}">${l}</button>`).join("");
   let html = banners();
-  if (ready) html += S.tab === "cal" ? renderCal() : S.tab === "reqcal" ? (S.admin ? renderReqCal() : "") : S.tab === "req" ? renderReq() : S.tab === "sum" ? renderSum() : renderStaff();
-  else if (S.dbState !== "loading") html += renderGate();
+  html += S.tab === "cal" ? renderCal() : S.tab === "reqcal" ? (S.admin ? renderReqCal() : "") : S.tab === "req" ? renderReq() : S.tab === "sum" ? renderSum() : renderStaff();
   document.getElementById("main").innerHTML = html;
   document.getElementById("toast-root").innerHTML = S.toast ? `<div class="toast ${S.toast.err ? "err" : ""}" role="status">${esc(S.toast.text)}</div>` : "";
   if (fid) { const el = document.getElementById(fid); if (el && el !== document.activeElement) { el.focus({ preventScroll: true }); if (selStart != null) try { el.setSelectionRange(selStart, selStart); } catch {} } }
 }
 
-// 参加していない人に見せる入口（招待リンクの案内と、店長のログイン）
-function renderGate() {
-  if (S.dbState === "setup") return `<section class="panel gate"><h2>準備中です</h2><p class="muted">このページはまだ Firebase の設定が入っていません。設定ファイル（firebase-config.js）に Firebase の設定値を入れると使えるようになります。</p></section>`;
-  let h = `<section class="panel gate"><h2>シフトボード</h2>`;
-  if (S.gate && S.gate.kind === "err") h += `<div class="msg err" role="alert">${esc(S.gate.text)}</div>`;
-  if (S.gate && S.gate.kind === "uid") {
-    const uid = S.authUser ? S.authUser.uid : "";
-    h += `<div class="msg err" role="alert">${S.gate.text ? esc(S.gate.text) + " は" : "このアカウントは"}管理者として登録されていません。</div>`;
-    if (!S.adminUid) h += `<p>管理者として登録するには、次の「あなたの ID」を設定に入れます（Claude に伝えてください）。</p>
-      <div class="row"><input class="mono uidbox" id="uid-box" readonly value="${esc(uid)}" aria-label="あなたの ID"><button class="btn small" id="uid-copy" data-act="copyUid">コピー</button></div>`;
-    h += `<p class="hint">別のアカウントで入り直すときは、右上の「ログアウト」を押してください。</p>`;
-  }
-  h += `<p>スタッフの方は、<b>店長から届いた招待リンク</b>を開いてください。ログインは要りません。一度開けば、次からはこのページを開くだけで使えます。</p>
-    <div class="gate-admin"><p class="hint">店長（管理者）の方はこちら</p><button class="btn" id="login" data-act="login">Google でログイン</button></div></section>`;
-  return h;
-}
-
 function banners() {
   if (S.dbState === "loading") return `<div class="banner">シフトデータを読み込んでいます…</div>`;
-  if (S.dbState !== "ready") return "";
+  if (S.dbState === "none") return `<div class="banner err"><span>シフトデータは claude.ai に保存されています。シフトの確認や希望の提出は、claude.ai にサインインしてから本番ページで行ってください。</span><a class="btn primary small" href="${APP_URL}" target="_blank" rel="noopener">本番ページを開く</a></div>`;
   let b = "";
   if (S.dbErr) b += `<div class="banner err">${esc(S.dbErr)}</div>`;
   if (!S.staff.length) b += S.admin
@@ -501,13 +457,13 @@ function renderDay() {
   // シフト一覧
   if (list.length) {
     h += `<div class="section-title">シフト</div><ul class="slist">` + list.map(s => {
-      const st = staffById(s.staffId), cc = calc(s);
+      const st = staffById(s.staffId), cc = calc(s), synced = S.gsync[s.id];
       let ctl = "";
       if (S.admin) ctl = S.confirmDel === s.id
         ? `<span class="row"><button class="btn small danger" id="del-yes-${s.id}" data-act="delshift" data-id="${s.id}">削除する</button><button class="btn small" id="del-no-${s.id}" data-act="cancelDel">やめる</button></span>`
         : `<span class="row"><button class="btn small" id="edit-${s.id}" data-act="editshift" data-id="${s.id}">編集</button><button class="btn small" id="askdel-${s.id}" data-act="askDel" data-id="${s.id}">削除</button></span>`;
       return `<li><span class="dot" style="${colorVar(st)}"></span><span><span class="who">${esc(nameOf(s.staffId))}</span> <span class="mono">${s.start}–${s.end}</span></span>${ctl}
-        <span class="meta">休憩 ${Number(s.breakMin) || 0}分 ・ 実働 <span class="num">${hrs(cc.work)}</span>${cc.night ? ` ・ 深夜 <span class="num">${hrs(cc.night)}</span>` : ""}${s.note ? `<br>${esc(s.note)}` : ""}</span></li>`;
+        <span class="meta">休憩 ${Number(s.breakMin) || 0}分 ・ 実働 <span class="num">${hrs(cc.work)}</span>${cc.night ? ` ・ 深夜 <span class="num">${hrs(cc.night)}</span>` : ""}${synced ? " ・ カレンダー登録済み" : ""}${s.note ? `<br>${esc(s.note)}` : ""}</span></li>`;
     }).join("") + `</ul>`;
   }
   // 希望
@@ -537,69 +493,65 @@ function renderDay() {
   return h;
 }
 
-/* カレンダーに入れる: シフトごとの Google カレンダー追加リンクと、まとめて取り込める .ics ファイル */
-// JST の「その日の 0:00 から m 分後」を UTC の 20261007T010000Z 形式にする
-function utcStamp(ds, m) {
-  const [y, mo, d] = ds.split("-").map(Number);
-  return new Date(Date.UTC(y, mo - 1, d, 0, m - 540)).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-}
-const calTitle = s => `${nameOf(s.staffId)} シフト${S.settings.storeName ? `（${S.settings.storeName}）` : ""}`;
-const calDetail = s => `休憩 ${Number(s.breakMin) || 0}分${s.note ? "\n" + s.note : ""}\nシフトボードより`;
-function gcalLink(s) {
-  const sp = span(s); if (!sp) return "#";
-  return "https://calendar.google.com/calendar/render?action=TEMPLATE"
-    + "&text=" + encodeURIComponent(calTitle(s))
-    + "&dates=" + utcStamp(s.date, sp.a) + "/" + utcStamp(s.date, sp.b)
-    + "&details=" + encodeURIComponent(calDetail(s));
-}
-function icsText(list) {
-  const escI = t => String(t).replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
-  const now = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-  const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//shift-board//JA", "CALSCALE:GREGORIAN", "METHOD:PUBLISH"];
-  for (const s of list) {
-    const sp = span(s); if (!sp) continue;
-    lines.push("BEGIN:VEVENT", `UID:${s.id}@shift-board`, `DTSTAMP:${now}`, `DTSTART:${utcStamp(s.date, sp.a)}`, `DTEND:${utcStamp(s.date, sp.b)}`,
-      `SUMMARY:${escI(calTitle(s))}`, `DESCRIPTION:${escI(calDetail(s))}`, "END:VEVENT");
-  }
-  lines.push("END:VCALENDAR");
-  return lines.join("\r\n") + "\r\n";
-}
-function calWho() { return S.gcal.who || (S.role === "member" ? S.me : "all"); }
+/* Googleカレンダー */
 function gcalBox(scope, all) {
-  const who = calWho(), list = all.filter(s => who === "all" || s.staffId === who);
-  let h = `<div class="gcal"><h3>カレンダーに入れる</h3>
-    <p class="hint">${scope === "day" ? "この日" : "この月"}のシフトを、自分の Google カレンダーやスマホのカレンダーに入れられます。</p>
-    <label class="f">だれのシフト<select id="gcal-who-${scope}" data-bind="gcal.who"><option value="all" ${who === "all" ? "selected" : ""}>全員</option>${S.staff.map(st => `<option value="${st.id}" ${who === st.id ? "selected" : ""}>${esc(st.name)}</option>`).join("")}</select></label>`;
-  if (!list.length) return h + `<p class="hint">対象のシフトはありません。</p></div>`;
-  if (scope === "day") h += `<div class="reqgrp">` + list.map(s => `<div class="reqline"><span class="dot" style="${colorVar(staffById(s.staffId))}"></span>${esc(nameOf(s.staffId))} <span class="mono">${s.start}–${s.end}</span><a class="btn small" href="${esc(gcalLink(s))}" target="_blank" rel="noopener">Google カレンダーに追加</a></div>`).join("") + `</div>`;
-  h += `<div><button class="btn" id="ics-${scope}" data-act="ics" data-scope="${scope}">${list.length} 件をカレンダー用ファイル（.ics）で保存</button></div>
-    <p class="hint">.ics ファイルは、パソコンの Google カレンダーの「設定 → インポート」で取り込めます。iPhone ではファイルを開くとカレンダーに追加できます。シフトが変わったときは、カレンダー側の予定も直してください。</p></div>`;
+  const g = S.gcal, list = all.filter(s => g.who === "all" || s.staffId === g.who), pending = list.filter(s => !S.gsync[s.id]);
+  let h = `<div class="gcal"><h3>Googleカレンダーに登録</h3>`;
+  if (S.dbState === "ready" && !S.mcp) return h + `<p class="hint">この画面では Google カレンダー連携を使えません。claude.ai で開くと使えます。</p></div>`;
+  h += `<p class="hint">${scope === "day" ? "この日" : "この月"}のシフトを、ページを開いているあなたの Google カレンダーに予定として追加します。</p>
+    <label class="f">だれのシフト<select id="gcal-who-${scope}" data-bind="gcal.who"><option value="all">全員</option>${S.staff.map(st => `<option value="${st.id}" ${g.who === st.id ? "selected" : ""}>${esc(st.name)}</option>`).join("")}</select></label>`;
+  if (S.admin && S.staff.some(st => emailOf(st))) h += `<label class="row hint"><input type="checkbox" id="gcal-invite-${scope}" data-bind="gcal.invite" ${g.invite ? "checked" : ""}> メールアドレスを登録したスタッフに招待メールを送る</label>`;
+  h += `<p class="hint">対象 ${list.length} 件${list.length - pending.length ? `（あなたが登録済みの ${list.length - pending.length} 件は除きます）` : ""}</p>`;
+  if (g.confirm === scope && !g.running) h += `<div class="row"><span>${pending.length} 件を登録します。</span><button class="btn primary small" id="gcal-go-${scope}" data-act="gcalGo" data-scope="${scope}">登録する</button><button class="btn small" id="gcal-no-${scope}" data-act="gcalCancel">やめる</button></div>`;
+  else h += `<div><button class="btn" id="gcal-ask-${scope}" data-act="gcalAsk" data-scope="${scope}" ${!pending.length || g.running || !S.mcp ? "disabled" : ""}>${g.running ? "登録中…" : "カレンダーに登録…"}</button></div>`;
+  if (g.msg) h += `<div class="msg ${g.msg.kind}" role="status">${esc(g.msg.text)}</div>`;
+  h += `<p class="hint">登録後にシフトを変えた場合は、カレンダー側の予定も直してください。</p></div>`;
   return h;
 }
-function saveIcs(scope) {
-  const who = calWho(), all = scope === "day" ? shiftsOn(S.sel) : shiftsInMonth(), list = all.filter(s => who === "all" || s.staffId === who);
-  if (!list.length) return;
-  const name = `シフト_${scope === "day" ? S.sel : curYm()}${who !== "all" ? "_" + nameOf(who) : ""}.ics`;
-  downloadBlob(new Blob([icsText(list)], { type: "text/calendar" }), name);
-  toast("カレンダー用ファイルを保存しました");
-}
-function downloadBlob(blob, filename) {
-  const url = URL.createObjectURL(blob), a = document.createElement("a");
-  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+function gcalErrText(e) {
+  switch (e && e.code) {
+    case "needs_reauth": return "Google カレンダーの接続が切れています。claude.ai の「設定 → コネクタ」で Google Calendar を接続し直してください。";
+    case "server_not_connected": return "Google カレンダーがまだ接続されていません。claude.ai の「設定 → コネクタ」で Google Calendar を追加してください。";
+    case "selection_required": return "Google Calendar の接続が複数あります。表示された画面で使う接続を選んでから、もう一度登録してください。";
+    case "not_in_manifest": return "このページでの Google カレンダー利用が許可されていません。ページ上部の権限メニューから許可できます。";
+    case "blocked_by_policy": case "approval_required": return "組織の設定により、ここから Google カレンダーに登録できません。";
+    case "server_unavailable": case "rate_limited": return "Google カレンダーに接続できませんでした。しばらく待ってから、カレンダーに同じ予定がないか確かめて、もう一度お試しください。";
+    case "tool_error": return "Google カレンダーが登録を受け付けませんでした: " + (e.message || "");
+    case "not_granted": case "capability_disabled": case "capability_removed": return "この画面では Google カレンダー連携を使えません。";
+    default: return "登録できませんでした。カレンダーに予定が入っていないか確かめてから、もう一度お試しください。";
+  }
 }
 
-/* 招待リンク */
-function newToken() {
-  const b = new Uint8Array(24); crypto.getRandomValues(b);
-  return btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+async function gcalRun(scope) {
+  const all = scope === "day" ? shiftsOn(S.sel) : shiftsInMonth();
+  const list = all.filter(s => (S.gcal.who === "all" || s.staffId === S.gcal.who) && !S.gsync[s.id]);
+  if (!S.mcp || !list.length) return;
+  Object.assign(S.gcal, { confirm: null, running: true, msg: { kind: "", text: `0 / ${list.length} 件を登録しました…` } }); render();
+  const synced = { ...S.gsync }; let done = 0;
+  for (const s of list) {
+    const st = staffById(s.staffId), sp = span(s); if (!sp) continue;
+    const endDay = sp.b >= 1440 ? ymd(addDays(parseYmd(s.date), 1)) : s.date;
+    const input = {
+      summary: `${st ? st.name : "スタッフ"} シフト${S.settings.storeName ? `（${S.settings.storeName}）` : ""}`,
+      startTime: `${s.date}T${s.start}:00+09:00`, endTime: `${endDay}T${clock(sp.b % 1440)}:00+09:00`, timeZone: "Asia/Tokyo",
+      description: `休憩 ${Number(s.breakMin) || 0}分${s.note ? "\n" + s.note : ""}\nシフトボードから登録`,
+    };
+    if (S.gcal.invite && st && emailOf(st)) input.attendees = [{ email: emailOf(st), displayName: st.name }];
+    try {
+      await S.mcp.callTool(GCAL, "create_event", input);
+      done++; synced[s.id] = Date.now(); S.gsync = { ...synced };
+      S.gcal.msg = { kind: "", text: `${done} / ${list.length} 件を登録しました…` }; render();
+    } catch (e) { S.gcal.msg = { kind: "err", text: `${done} 件を登録したところで止まりました。${gcalErrText(e)}` }; break; }
+  }
+  S.gcal.running = false;
+  if (done === list.length) S.gcal.msg = { kind: "ok", text: `${done} 件を Google カレンダーに登録しました。` };
+  render();
+  if (done) saveGsync();
 }
-const inviteUrl = id => S.tokens[id] ? `${location.origin}${location.pathname}#join=${id}.${S.tokens[id]}` : "";
-function copyText(el) {
-  if (!el) return;
-  const done = () => toast("コピーしました");
-  const fallback = () => { el.focus(); el.select(); toast("選択しました。長押しかCtrl+Cでコピーしてください"); };
-  try { navigator.clipboard.writeText(el.value).then(done, fallback); } catch { fallback(); }
+async function saveGsync() {
+  if (S.db && S.uid) { try { await S.db.doc(`data/users/${S.uid}/gcal`).set({ ids: S.gsync }); return; } catch {} }
+  pref.set("gsync", JSON.stringify(S.gsync));
 }
 
 /* 希望シフト */
@@ -609,9 +561,7 @@ function renderReq() {
   const own = r.staffId ? reqOf(r.staffId) : null;
   let h = `<section class="panel"><div class="toolbar">${monthNav(monthLabel() + "の希望")}${dl ? `<span class="hint">提出期限 ${prev.getMonth() + 1}月${dl}日</span>` : ""}</div>`;
   if (!S.staff.length) return h + `<p class="muted">スタッフが登録されると、ここから希望シフトを出せます。</p></section>` + matrix();
-  h += `<div class="row" style="margin-bottom:12px">${S.role === "member"
-    ? `<span class="f" style="min-width:12em">あなたの名前<b style="color:var(--ink);font-size:16px">${esc(nameOf(S.me))}</b></span>`
-    : `<label class="f" style="min-width:12em">${S.admin ? "だれの希望" : "あなたの名前"}<select id="req-staff" data-bind="req.staffId"><option value="">選んでください</option>${S.staff.map(st => `<option value="${st.id}" ${st.id === r.staffId ? "selected" : ""}>${esc(st.name)}</option>`).join("")}</select></label>`}
+  h += `<div class="row" style="margin-bottom:12px"><label class="f" style="min-width:12em">あなたの名前<select id="req-staff" data-bind="req.staffId"><option value="">選んでください</option>${S.staff.map(st => `<option value="${st.id}" ${st.id === r.staffId ? "selected" : ""}>${esc(st.name)}</option>`).join("")}</select></label>
     ${r.staffId ? (own ? `<span class="status done">提出済み ${new Date(own.updatedAt).getMonth() + 1}/${new Date(own.updatedAt).getDate()}</span>` : `<span class="status">未提出</span>`) : ""}${r.dirty ? `<span class="hint">未保存の変更があります</span>` : ""}</div>`;
   if (!r.staffId) return h + `<p class="hint">名前を選ぶと、日付をタップして希望を入力できます。</p></section>` + matrix();
   h += `<div class="legend" style="margin-bottom:10px"><span>日付をタップするたびに切り替わります:</span><span class="ok">〇 終日OK</span><span class="part">△ 時間指定</span><span class="ng">× 入れない</span><span class="muted">空白 未定</span></div>`;
@@ -625,8 +575,8 @@ function renderReq() {
   const parts = Object.keys(r.days).filter(k => r.days[k].k === "part").sort();
   if (parts.length) h += `<div class="section-title">△ の日の時間</div><div class="partlist">` + parts.map(k => { const v = r.days[k]; return `<div class="partrow"><span class="mono" style="width:5.5em">${first.getMonth() + 1}/${Number(k)}(${WD[new Date(first.getFullYear(), first.getMonth(), Number(k)).getDay()]})</span><input type="time" id="rp-s-${k}" data-bind="req.days.${k}.start" value="${v.start || ""}" step="300" aria-label="${Number(k)}日の開始"> 〜 <input type="time" id="rp-e-${k}" data-bind="req.days.${k}.end" value="${v.end || ""}" step="300" aria-label="${Number(k)}日の終了"></div>`; }).join("") + `</div>`;
   h += `<label class="f" style="margin-top:14px">店長へのメモ<textarea id="req-note" data-bind="req.note" placeholder="例: 15日は午後から授業があります">${esc(r.note)}</textarea></label>`;
-  const ro = !(S.admin || (S.role === "member" && r.staffId === S.me));
-  h += `<div class="row" style="margin-top:12px"><button class="btn primary" id="req-submit" data-act="reqSubmit" ${ro ? "disabled" : ""}>${own ? "希望を更新する" : "希望を提出する"}</button>${r.dirty ? `<button class="btn" id="req-reset" data-act="reqReset">変更を取り消す</button>` : ""}${ro ? `<span class="hint">ほかの人の希望は出せません。自分の希望は、店長から届いた招待リンクで開くと出せます。</span>` : ""}</div>`;
+  const ro = S.canWrite === false;
+  h += `<div class="row" style="margin-top:12px"><button class="btn primary" id="req-submit" data-act="reqSubmit" ${ro ? "disabled" : ""}>${own ? "希望を更新する" : "希望を提出する"}</button>${r.dirty ? `<button class="btn" id="req-reset" data-act="reqReset">変更を取り消す</button>` : ""}${ro ? `<span class="hint">閲覧のみの権限のため提出できません。店長に、あなたのメールアドレスでこのページに招待してもらってください。</span>` : ""}</div>`;
   return h + `</section>` + matrix();
 }
 
@@ -648,6 +598,7 @@ function matrix() {
 
 /* PDF（A4 横）。日本語フォントを PDF に埋め込まずに済むよう、画面のフォントで canvas に描いて貼る */
 function pdfButton(where) {
+  if (!S.downloads) return "";
   return `<button class="btn small" id="pdf-${where}" data-act="pdf" ${S.pdfBusy ? "disabled" : ""}>${S.pdfBusy ? "PDF を作成中…" : "シフト表・希望を PDF で保存"}</button>`;
 }
 const PDF = {
@@ -796,7 +747,7 @@ function pdfErrText(e) {
   }
 }
 async function savePdf() {
-  if (S.pdfBusy) return;
+  if (!S.downloads || S.pdfBusy) return;
   if (!window.jspdf || !window.jspdf.jsPDF) { toast("PDF を作る部品を読み込めませんでした。ページを開き直してください。", true); return; }
   S.pdfBusy = true; render();
   try {
@@ -804,9 +755,9 @@ async function savePdf() {
     const pages = []; drawShiftPages(pages); drawReqPages(pages);
     const pdf = new window.jspdf.jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
     pages.forEach((cv, i) => { if (i) pdf.addPage(); pdf.addImage(cv.toDataURL("image/png"), "PNG", 0, 0, 297, 210, undefined, "FAST"); });
-    downloadBlob(pdf.output("blob"), `シフト表_${curYm()}.pdf`);
+    const res = await S.downloads.save({ filename: `シフト表_${curYm()}.pdf`, data: pdf.output("blob") });
     S.pdfBusy = false;
-    toast("PDF を保存しました");
+    if (res && res.status === "saved") toast("PDF を保存しました");
   } catch (e) {
     S.pdfBusy = false;
     if (!(e && e.code === "declined")) toast(pdfErrText(e), true);
@@ -843,10 +794,7 @@ function renderStaff() {
     if (S.admin) ctl = S.confirmDel === "st:" + st.id
       ? `<span class="row"><button class="btn small danger" id="sdel-yes-${st.id}" data-act="delStaff" data-id="${st.id}">削除する</button><button class="btn small" id="sdel-no-${st.id}" data-act="cancelDel">やめる</button></span>`
       : `<span class="row"><button class="btn small" id="sedit-${st.id}" data-act="editStaff" data-id="${st.id}">編集</button><button class="btn small" id="sask-${st.id}" data-act="askDel" data-id="st:${st.id}">削除</button></span>`;
-    return `<li><span class="dot" style="${colorVar(st)}"></span><span class="who">${esc(st.name)}</span>${ctl}${S.admin ? `<span class="meta">時給 ${wageOf(st) ? yen(wageOf(st)) : "未設定"}${emailOf(st) ? ` ・ ${esc(emailOf(st))}` : ""}</span>
-      <span class="invite">${S.tokens[st.id]
-        ? `<input id="inv-${st.id}" readonly value="${esc(inviteUrl(st.id))}" aria-label="${esc(st.name)}さんの招待リンク"><button class="btn small" id="invc-${st.id}" data-act="copyInvite" data-id="${st.id}">招待リンクをコピー</button><button class="btn small" id="invr-${st.id}" data-act="makeInvite" data-id="${st.id}">作り直す</button>`
-        : `<button class="btn small" id="invm-${st.id}" data-act="makeInvite" data-id="${st.id}">招待リンクを作る</button>`}</span>` : ""}</li>`;
+    return `<li><span class="dot" style="${colorVar(st)}"></span><span class="who">${esc(st.name)}</span>${ctl}${S.admin ? `<span class="meta">時給 ${wageOf(st) ? yen(wageOf(st)) : "未設定"}${emailOf(st) ? ` ・ ${esc(emailOf(st))}` : ""}</span>` : ""}</li>`;
   }).join("") + `</ul>` : `<p class="muted">まだ誰も登録されていません。${S.admin ? "右のフォームから追加してください。" : ""}</p>`;
   h += `</section>`;
   if (S.admin) {
@@ -855,7 +803,7 @@ function renderStaff() {
       <form class="form" id="staff-form" data-form="staff">
         <label class="f full">名前<input id="s-name" data-bind="sf.name" value="${esc(f.name)}" required maxlength="20" placeholder="例: 山田"></label>
         <label class="f">時給（円）<input type="number" id="s-wage" data-bind="sf.wage" value="${esc(f.wage)}" min="0" step="1" inputmode="numeric" placeholder="例: 1000"></label>
-        <label class="f">メール（任意）<input type="email" id="s-email" data-bind="sf.email" value="${esc(f.email)}" placeholder="連絡用（任意）"></label>
+        <label class="f">メール（任意）<input type="email" id="s-email" data-bind="sf.email" value="${esc(f.email)}" placeholder="カレンダー招待に使います"></label>
         <div class="f full">色<div class="swatches" role="group" aria-label="色">${[...Array(8)].map((_, i) => `<button type="button" class="sw" id="sw-${i}" style="--c:var(--c${i})" aria-pressed="${f.color === i}" aria-label="色 ${i + 1}" data-act="pickColor" data-v="${i}"></button>`).join("")}</div></div>
         <p class="hint full">時給とメールアドレスは管理者のあなただけが見られる場所に保存されます。スタッフの画面には出ません。</p>
         <div class="row full"><button class="btn primary" id="s-submit" type="submit">${f.id ? "変更を保存" : "追加する"}</button>${f.id ? `<button class="btn" type="button" id="s-cancel" data-act="cancelStaff">やめる</button>` : ""}</div>
@@ -1028,11 +976,10 @@ function needDraft() { if (!S.need) S.need = cloneStaffing(); for (const d of NE
 function toast(text, err) { S.toast = { text, err }; render(); clearTimeout(toast.t); toast.t = setTimeout(() => { S.toast = null; render(); }, err ? 6000 : 2600); }
 function dbErrText(e) {
   switch (e && e.code) {
-    case "permission-denied": return "保存できませんでした。この操作をする権限がありません。";
-    case "invalid-argument": return "保存できませんでした。入力内容を確かめてください。";
-    case "resource-exhausted": return "保存できる量か回数の上限に達しました。少し待ってから、もう一度お試しください。";
-    case "unauthenticated": return "ログインが切れました。ページを開き直してください。";
-    case "unavailable": return "通信できませんでした。電波の良い場所で、もう一度お試しください。";
+    case "invalid_argument": return "保存できませんでした。この操作をする権限がないか、入力内容に問題があります。";
+    case "quota_exceeded": return "保存できる量の上限に達しました。古いシフトを削除してから、もう一度お試しください。";
+    case "resource_exhausted": return "操作が続きすぎました。少し待ってからもう一度お試しください。";
+    case "revoked": return "このページへのアクセス権が変わりました。ページを開き直してください。";
     default: return "保存できませんでした。通信状況を確かめて、もう一度お試しください。";
   }
 }
@@ -1100,34 +1047,16 @@ const A = {
   async reqSubmit() {
     const r = S.req; if (!r.staffId) return;
     for (const k of Object.keys(r.days)) { const v = r.days[k]; if (v.k === "part" && (!v.start || !v.end)) { toast(`${Number(k)}日の △ に時間を入れてください。`, true); return; } if (v.k !== "part") { delete v.start; delete v.end; } }
-    const ok = await write(() => S.db.doc(`requests/${r.staffId}_${curYm()}`).set({ staffId: r.staffId, month: curYm(), days: r.days, note: r.note.trim(), updatedAt: Date.now(), by: S.authUser ? S.authUser.uid : null }), "希望シフトを提出しました");
+    const ok = await write(() => S.db.doc(`requests/${r.staffId}_${curYm()}`).set({ staffId: r.staffId, month: curYm(), days: r.days, note: r.note.trim(), updatedAt: Date.now(), by: S.uid || null }), "希望シフトを提出しました");
     if (ok) r.dirty = false;
   },
   pickColor(t) { S.sf.color = Number(t.dataset.v); },
   editStaff(t) { const st = staffById(t.dataset.id); if (st) S.sf = { id: st.id, name: st.name, wage: wageOf(st) ?? "", color: st.color || 0, email: emailOf(st) || "" }; },
   cancelStaff() { S.sf = { id: null, name: "", wage: "", color: (S.staff.length) % 8, email: "" }; },
-  async delStaff(t) {
-    S.confirmDel = null; const id = t.dataset.id;
-    await write(async () => {
-      await S.db.doc("staff/" + id).delete(); await S.db.doc("private/" + id).delete(); await S.db.doc("staffTokens/" + id).delete();
-      const ss = await S.db.collection("sessions").where("staffId", "==", id).get(); for (const d of ss.docs) await d.ref.delete();
-    }, "スタッフを削除しました（過去のシフトは残ります）");
-  },
-  ics(t) { saveIcs(t.dataset.scope); return true; },
-  async login() {
-    try { await S.auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()); }
-    catch (e) { if (e && e.code !== "auth/popup-closed-by-user" && e.code !== "auth/cancelled-popup-request") toast(e && e.code === "auth/unauthorized-domain" ? "このページのアドレスが Firebase のログイン許可に入っていません。設定を確かめてください。" : "ログインできませんでした。もう一度お試しください。", true); }
-  },
-  async logout() { try { await S.auth.signOut(); } catch {} },
-  copyUid() { copyText(document.getElementById("uid-box")); return true; },
-  copyInvite(t) { copyText(document.getElementById("inv-" + t.dataset.id)); return true; },
-  async makeInvite(t) {
-    const id = t.dataset.id, again = !!S.tokens[id];
-    await write(async () => {
-      await S.db.doc("staffTokens/" + id).set({ token: newToken() });
-      if (again) { const ss = await S.db.collection("sessions").where("staffId", "==", id).get(); for (const d of ss.docs) await d.ref.delete(); }
-    }, again ? "リンクを作り直しました。古いリンクと、古いリンクで参加した端末は使えなくなります。" : "招待リンクを作りました");
-  },
+  async delStaff(t) { S.confirmDel = null; const id = t.dataset.id; await write(async () => { await S.db.doc("staff/" + id).delete(); await S.db.doc("private/" + id).delete(); }, "スタッフを削除しました（過去のシフトは残ります）"); },
+  gcalAsk(t) { S.gcal.confirm = t.dataset.scope; S.gcal.msg = null; },
+  gcalCancel() { S.gcal.confirm = null; },
+  gcalGo(t) { gcalRun(t.dataset.scope); return true; },
 };
 
 document.addEventListener("click", e => {
@@ -1182,8 +1111,7 @@ document.addEventListener("submit", async e => {
       const ref = f.id ? S.db.doc("staff/" + f.id) : S.db.collection("staff").doc();
       await ref.set(data);
       await S.db.doc("private/" + ref.id).set(priv);
-      if (!f.id) await S.db.doc("staffTokens/" + ref.id).set({ token: newToken() });
-    }, f.id ? "スタッフを更新しました" : `${name}さんを追加しました。下の一覧から招待リンクをコピーして送れます`);
+    }, f.id ? "スタッフを更新しました" : `${name}さんを追加しました`);
     if (ok) S.sf = { id: null, name: "", wage: "", color: (S.staff.length + (f.id ? 0 : 1)) % 8, email: "" };
   } else if (kind === "settings") {
     const f = S.setf || S.settings;
@@ -1196,12 +1124,8 @@ document.addEventListener("submit", async e => {
 });
 
 /* ---------- data ---------- */
-let unsubShifts = null, unsubReqs = null, subKey = "", unsubs = [];
-function onDbErr(e) { S.dbErr = e && e.code === "permission-denied" ? "このページを見る権限がなくなりました。店長から新しい招待リンクをもらってください。" : "データの更新が止まりました。ページを開き直してください。"; render(); }
-function stopAll() {
-  for (const u of unsubs) u(); unsubs = [];
-  if (unsubShifts) unsubShifts(); if (unsubReqs) unsubReqs(); unsubShifts = unsubReqs = null; subKey = "";
-}
+let unsubShifts = null, unsubReqs = null, subKey = "";
+function onDbErr(e) { S.dbErr = e && e.code === "revoked" ? "このページへのアクセス権が変わりました。ページを開き直してください。" : "データの更新が止まりました。ページを開き直してください。"; render(); }
 function subscribeMonth() {
   if (!S.db) return; const key = curYm(); if (key === subKey) return; subKey = key;
   if (unsubShifts) unsubShifts(); if (unsubReqs) unsubReqs();
@@ -1210,65 +1134,27 @@ function subscribeMonth() {
   unsubReqs = S.db.collection("requests").where("month", "==", key).onSnapshot(snap => { S.reqs = snap.docs.map(d => ({ id: d.id, ...d.data() })); if (!S.req.dirty) loadReqDraft(); render(); }, onDbErr);
 }
 
-// データの購読を始める（管理者か、招待リンクで参加したスタッフだけが読める）
-function startData() {
-  const db = S.db; stopAll(); S.dbState = "ready"; S.dbErr = "";
-  unsubs.push(db.collection("staff").onSnapshot(snap => {
+render();
+(async () => {
+  const use = n => (window.claude && window.claude.use ? window.claude.use(n).catch(() => null) : Promise.resolve(null));
+  const [db, user, mcp, downloads] = await Promise.all([use("db"), use("user"), use("mcp"), use("downloads")]);
+  S.mcp = mcp; S.user = user; S.downloads = downloads;
+  // 管理者はこのページの作成者だけ（共有メニューで編集者にした人も管理者にはしない）
+  if (user) { const [adm, cw, id] = await Promise.all([user.isOwner(), user.can("data.write"), user.id()]); S.admin = adm; S.canWrite = cw; S.uid = id; }
+  if (!db) { S.dbState = "none"; render(); return; }
+  S.db = db; S.dbState = "ready";
+  try { S.gsync = JSON.parse(pref.get("gsync", "{}")) || {}; } catch { S.gsync = {}; }
+  db.collection("staff").onSnapshot(snap => {
     S.staff = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.order || 0) - (b.order || 0));
-    if (S.req.staffId && !staffById(S.req.staffId)) S.req.staffId = S.role === "member" ? S.me : "";
+    if (S.req.staffId && !staffById(S.req.staffId)) S.req.staffId = "";
     if (!S.sf.id && !S.sf.name) S.sf.color = S.staff.length % 8;
     render();
-  }, onDbErr));
-  if (S.admin) {
-    unsubs.push(db.collection("private").onSnapshot(snap => { const p = {}; for (const d of snap.docs) p[d.id] = d.data(); S.priv = p; render(); }, onDbErr));
-    unsubs.push(db.collection("staffTokens").onSnapshot(snap => { const t = {}; for (const d of snap.docs) t[d.id] = d.data().token; S.tokens = t; render(); }, onDbErr));
-  }
-  unsubs.push(db.doc("settings/staffing").onSnapshot(snap => { S.staffing = snap.exists && snap.data().byDow ? { byDow: snap.data().byDow } : { byDow: {} }; render(); }, onDbErr));
-  unsubs.push(db.doc("settings/main").onSnapshot(snap => { if (snap.exists) S.settings = { ...S.settings, ...snap.data() }; render(); }, onDbErr));
+  }, onDbErr);
+  if (S.admin) db.collection("private").onSnapshot(snap => { const p = {}; for (const d of snap.docs) p[d.id] = d.data(); S.priv = p; render(); }, onDbErr);
+  db.doc("settings/staffing").onSnapshot(snap => { S.staffing = snap.exists && snap.data().byDow ? { byDow: snap.data().byDow } : { byDow: {} }; render(); }, onDbErr);
+  db.doc("settings/main").onSnapshot(snap => { if (snap.exists) S.settings = { ...S.settings, ...snap.data() }; render(); }, onDbErr);
+  if (S.uid) db.doc(`data/users/${S.uid}/gcal`).get().then(s => { if (s.exists && s.data().ids) { S.gsync = { ...S.gsync, ...s.data().ids }; render(); } }).catch(() => {});
   subscribeMonth();
   render();
-}
-
-// 招待リンク: #join=<スタッフID>.<合言葉>
-function readJoin() {
-  const m = /^#join=([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)$/.exec(location.hash || "");
-  return m ? { staffId: m[1], token: m[2] } : null;
-}
-function clearHash() { try { history.replaceState(null, "", location.pathname + location.search); } catch {} }
-
-render();
-(function boot() {
-  const cfg = window.SHIFT_CONFIG || {};
-  if (!window.firebase || !cfg.firebase || !cfg.firebase.apiKey) { S.dbState = "setup"; render(); return; }
-  firebase.initializeApp(cfg.firebase);
-  const auth = firebase.auth(), db = firebase.firestore();
-  S.auth = auth; S.db = db; S.adminUid = cfg.adminUid || "";
-  let join = readJoin();
-  auth.onAuthStateChanged(async u => {
-    stopAll(); S.authUser = u; S.admin = false; S.role = "guest"; S.me = ""; S.gate = null;
-    if (!u) {
-      if (join) { try { await auth.signInAnonymously(); } catch (e) { S.dbState = "guest"; S.gate = { kind: "err", text: "参加の準備に失敗しました。通信状況を確かめて、招待リンクを開き直してください。" }; render(); } return; }
-      S.dbState = "guest"; render(); return;
-    }
-    if (S.adminUid && u.uid === S.adminUid) { S.admin = true; S.role = "admin"; join = null; clearHash(); startData(); return; }
-    S.dbState = "loading"; render();
-    if (join) {
-      try {
-        await db.doc("sessions/" + u.uid).set({ staffId: join.staffId, token: join.token, createdAt: Date.now() });
-        pref.set("me", join.staffId);
-      } catch (e) {
-        S.dbState = "guest"; S.gate = { kind: "err", text: "この招待リンクは使えません。リンクが古いか、途中で切れている可能性があります。店長から新しいリンクをもらってください。" };
-        join = null; clearHash(); render(); return;
-      }
-      join = null; clearHash();
-    }
-    let ses = null; try { ses = await db.doc("sessions/" + u.uid).get(); } catch {}
-    if (ses && ses.exists) { S.role = "member"; S.me = ses.data().staffId; S.req.staffId = S.me; pref.set("me", S.me); startData(); return; }
-    S.dbState = "guest";
-    if (!u.isAnonymous) S.gate = { kind: "uid", text: u.email || "" };
-    render();
-  });
 })();
 </script>
-</body>
-</html>
