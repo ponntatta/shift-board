@@ -6,6 +6,10 @@
 
 https://claude.ai/artifact/RSUbvNbKGrUHdXPQVzTSP2
 
+スマホのカメラで読み取ると本番ページが開きます。
+
+<img src="qr.png" alt="本番ページの QR コード" width="240">
+
 シフト・スタッフ・希望のデータは claude.ai 側に保存されます。実際に使うときは、claude.ai にサインインして本番ページを開いてください。スタッフには、共有メニューで「参加者（Contributor）」権限を付けて招待します。
 
 GitHub Pages 版（https://ponntatta.github.io/shift-board/）では画面の見た目だけを確認でき、データの読み書きはできません。
@@ -20,4 +24,5 @@ GitHub Pages 版（https://ponntatta.github.io/shift-board/）では画面の見
 ## ファイル
 
 - `index.html` … ページ本体（claude.ai の Artifact としてそのまま公開）
+- `qr.png` … 本番ページの QR コード
 - `.github/workflows/deploy.yml` … main に push すると GitHub Pages に自動公開
