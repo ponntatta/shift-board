@@ -1,0 +1,720 @@
+<title>シフトボード</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=IBM+Plex+Mono:wght@400;600&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<style>
+/* Layout: 打刻カードのような帳票。上に固定ヘッダーとタブ、カレンダーと「その日の詳細」を左右に並べ、スマホでは縦積み */
+:root {
+  --bg: #EEF1F5;
+  --surface: #FFFFFF;
+  --sunken: #F6F8FB;
+  --ink: #161E2E;
+  --muted: #5A6477;
+  --line: #D8DEE8;
+  --accent: #2148C9;
+  --accent-ink: #FFFFFF;
+  --accent-soft: #E3EAFB;
+  --today: #F2BE22;
+  --ok: #1D8455;
+  --part: #A86B0C;
+  --ng: #BF3A34;
+  --sun: #BF3A34;
+  --sat: #2148C9;
+  --c0: #2F6FE4; --c1: #E0663A; --c2: #1E9A6A; --c3: #A453D6;
+  --c4: #D1A114; --c5: #D94C8A; --c6: #2A9FB8; --c7: #6B7A8F;
+  --f-display: "Dela Gothic One", "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", sans-serif;
+  --f-body: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "Consolas", monospace;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E131C; --surface: #161D29; --sunken: #111722; --ink: #E6EAF1; --muted: #98A2B4; --line: #283244;
+    --accent: #7E9CFF; --accent-ink: #0E131C; --accent-soft: #1D2846; --today: #E3B421;
+    --ok: #4CC38A; --part: #E3A54A; --ng: #F0736A; --sun: #F0736A; --sat: #8FA9FF;
+    --c0: #6F9BFF; --c1: #F08A5E; --c2: #46C08E; --c3: #C084F0; --c4: #E8C14A; --c5: #F27AAE; --c6: #4FC2D9; --c7: #9AA8BC;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E131C; --surface: #161D29; --sunken: #111722; --ink: #E6EAF1; --muted: #98A2B4; --line: #283244;
+  --accent: #7E9CFF; --accent-ink: #0E131C; --accent-soft: #1D2846; --today: #E3B421;
+  --ok: #4CC38A; --part: #E3A54A; --ng: #F0736A; --sun: #F0736A; --sat: #8FA9FF;
+  --c0: #6F9BFF; --c1: #F08A5E; --c2: #46C08E; --c3: #C084F0; --c4: #E8C14A; --c5: #F27AAE; --c6: #4FC2D9; --c7: #9AA8BC;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.6; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mono, .num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+
+/* header */
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); border-bottom: 1px solid var(--line); }
+.top-in { max-width: 1240px; margin: 0 auto; padding-inline: 16px; padding-block: 12px 0; display: flex; flex-direction: column; gap: 10px; }
+.brand { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.brand h1 { font-family: var(--f-display); font-weight: 400; font-size: 22px; letter-spacing: .02em; }
+.brand .store { color: var(--muted); font-weight: 500; }
+.role { margin-left: auto; font-size: 12px; letter-spacing: .08em; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.role.admin { border-color: var(--accent); color: var(--accent); }
+.tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.tabs button { border: 0; background: none; padding: 8px 14px 10px; border-bottom: 3px solid transparent; color: var(--muted); font-weight: 500; white-space: nowrap; }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 700; }
+
+main { max-width: 1240px; margin: 0 auto; padding-inline: 16px; padding-block: 18px 64px; display: flex; flex-direction: column; gap: 16px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; min-width: 0; }
+.banner { border: 1px solid var(--line); background: var(--sunken); border-radius: var(--r); padding: 12px 14px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.banner.warn { border-color: var(--part); }
+.banner.err { border-color: var(--ng); }
+
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 7px 14px; font-weight: 500; }
+.btn:hover { background: var(--sunken); }
+a.btn { display: inline-block; text-decoration: none; color: var(--ink); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.danger { color: var(--ng); border-color: var(--ng); }
+.btn.small { padding: 3px 10px; font-size: 13px; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* toolbar */
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.nav { display: flex; align-items: center; gap: 6px; }
+.nav .arrow { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); font-size: 18px; line-height: 1; }
+.period { font-family: var(--f-display); font-weight: 400; font-size: 20px; min-width: 9.5em; text-align: center; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; background: var(--surface); padding: 5px 14px; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+
+/* calendar layout */
+.cal-layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; align-items: start; }
+@media (max-width: 960px) { .cal-layout { grid-template-columns: minmax(0, 1fr); } }
+
+.month { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+.month .wd { font-size: 12px; text-align: center; padding: 4px 0; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--sunken); color: var(--muted); font-weight: 700; }
+.month .wd.d0 { color: var(--sun); } .month .wd.d6 { color: var(--sat); }
+.cell { min-height: 104px; border: 0; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--surface); text-align: left; padding: 4px 5px 6px; display: flex; flex-direction: column; gap: 3px; min-width: 0; position: relative; }
+.cell:hover { background: var(--sunken); }
+.cell.out { background: var(--sunken); }
+.cell.out .dnum { opacity: .45; }
+.cell.sel { box-shadow: inset 0 0 0 2px var(--accent); }
+.dnum { font-family: var(--f-mono); font-weight: 600; font-size: 13px; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; }
+.cell.d0 .dnum { color: var(--sun); } .cell.d6 .dnum { color: var(--sat); }
+.cell.today .dnum { background: var(--today); color: #161E2E; }
+.chips { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.chip { display: block; font-size: 11.5px; line-height: 1.35; padding: 1px 5px; border-radius: 4px; border-left: 3px solid var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip i { font-style: normal; font-family: var(--f-mono); color: var(--muted); font-size: 10.5px; }
+.more { font-size: 11px; color: var(--muted); padding-left: 4px; }
+.rq { margin-top: auto; display: flex; gap: 6px; font-size: 10.5px; font-family: var(--f-mono); }
+.ok { color: var(--ok); } .part { color: var(--part); } .ng { color: var(--ng); }
+@media (max-width: 640px) {
+  .cell { min-height: 64px; padding: 3px; }
+  .chip { font-size: 0; padding: 0; height: 6px; border-left: 0; background: var(--c); border-radius: 3px; }
+  .chip i { display: none; }
+  .chips { gap: 2px; }
+  .rq { display: none; }
+  .period { font-size: 17px; min-width: 0; }
+}
+
+/* week table */
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; }
+.week th, .week td { border: 1px solid var(--line); padding: 6px; vertical-align: top; }
+.week thead th { background: var(--sunken); font-size: 12.5px; font-weight: 700; }
+.week thead th button { border: 0; background: none; font-weight: 700; width: 100%; padding: 0; }
+.week thead th.sel { box-shadow: inset 0 -3px 0 var(--accent); }
+.week th.name { text-align: left; min-width: 7em; white-space: nowrap; }
+.week td { min-width: 84px; font-size: 13px; }
+.week td.sel { background: var(--accent-soft); }
+.wshift { font-family: var(--f-mono); font-size: 12.5px; border-left: 3px solid var(--c); padding-left: 5px; white-space: nowrap; }
+.wreq { font-size: 12px; opacity: .8; }
+.week tfoot td { background: var(--sunken); font-size: 12px; color: var(--muted); }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--c); margin-right: 6px; vertical-align: middle; }
+
+/* day panel */
+.day-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+.day-head h2 { font-family: var(--f-display); font-weight: 400; font-size: 20px; }
+.section-title { font-size: 12px; font-weight: 700; letter-spacing: .1em; color: var(--muted); margin: 16px 0 8px; }
+.timeline { position: relative; border: 1px solid var(--line); border-radius: 8px; background: var(--sunken); padding: 22px 8px 8px; display: flex; flex-direction: column; gap: 4px; }
+.ticks { position: absolute; inset: 0 8px; pointer-events: none; }
+.tick { position: absolute; top: 0; bottom: 0; border-left: 1px dashed var(--line); }
+.tick span { position: absolute; top: 3px; left: 2px; font-family: var(--f-mono); font-size: 10px; color: var(--muted); }
+.bar { position: relative; height: 22px; }
+.bar > div { position: absolute; top: 0; bottom: 0; border-radius: 5px; background: var(--c); color: #fff; font-size: 11px; padding: 0 6px; display: flex; align-items: center; white-space: nowrap; overflow: hidden; min-width: 4px; }
+.empty-tl { font-size: 13px; color: var(--muted); padding: 4px 0 2px; }
+.slist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.slist li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
+.slist .who { font-weight: 700; }
+.slist .meta { grid-column: 2 / 4; font-size: 12.5px; color: var(--muted); }
+.reqgrp { display: flex; flex-direction: column; gap: 4px; font-size: 13.5px; }
+.reqline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mark { font-weight: 700; width: 1.4em; text-align: center; }
+
+.form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.form .full { grid-column: 1 / -1; }
+label.f { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); font-weight: 500; min-width: 0; }
+.f input, .f select, .f textarea { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 7px 9px; color: var(--ink); width: 100%; min-width: 0; }
+.f textarea { min-height: 64px; resize: vertical; }
+.hint { font-size: 12px; color: var(--muted); }
+
+.gcal { margin-top: 18px; padding: 12px; border: 1px dashed var(--line); border-radius: 8px; display: flex; flex-direction: column; gap: 8px; }
+.gcal h3 { font-size: 14px; }
+.msg { font-size: 13px; padding: 6px 10px; border-radius: 6px; background: var(--sunken); }
+.msg.err { color: var(--ng); }
+.msg.ok { color: var(--ok); }
+
+/* requests */
+.reqgrid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.rday { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 6px 4px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 64px; }
+.rday .n { font-family: var(--f-mono); font-size: 13px; font-weight: 600; }
+.rday .w { font-size: 11px; color: var(--muted); }
+.rday .m { font-size: 18px; font-weight: 700; line-height: 1.1; min-height: 1.1em; }
+.rday.k-ok { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, var(--surface)); }
+.rday.k-part { border-color: var(--part); background: color-mix(in srgb, var(--part) 10%, var(--surface)); }
+.rday.k-ng { border-color: var(--ng); background: color-mix(in srgb, var(--ng) 8%, var(--surface)); }
+.rday.blank { visibility: hidden; }
+.rday.d0 .n { color: var(--sun); } .rday.d6 .n { color: var(--sat); }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; }
+.partlist { display: flex; flex-direction: column; gap: 6px; }
+.partrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 14px; }
+.partrow input { border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; background: var(--surface); }
+.matrix th, .matrix td { border: 1px solid var(--line); padding: 3px 4px; text-align: center; font-size: 12.5px; }
+.matrix thead th { background: var(--sunken); font-family: var(--f-mono); font-weight: 600; min-width: 26px; }
+.matrix th.name { text-align: left; white-space: nowrap; font-family: var(--f-body); padding-inline: 8px; }
+.status { font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+.status.done { border-color: var(--ok); color: var(--ok); }
+
+/* summary */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.kpi { background: var(--sunken); border-radius: 8px; padding: 10px 12px; }
+.kpi .l { font-size: 12px; color: var(--muted); }
+.kpi .v { font-family: var(--f-display); font-size: 22px; font-weight: 400; }
+.sum th, .sum td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; font-family: var(--f-mono); font-variant-numeric: tabular-nums; font-size: 13.5px; }
+.sum th { font-family: var(--f-body); font-size: 12px; color: var(--muted); font-weight: 700; }
+.sum td.name, .sum th.name { text-align: left; font-family: var(--f-body); }
+.sum tfoot td { font-weight: 700; border-bottom: 0; border-top: 2px solid var(--ink); }
+.hbar { height: 6px; border-radius: 3px; background: var(--c); margin-top: 4px; }
+
+/* staff */
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 860px) { .two { grid-template-columns: minmax(0, 1fr); } }
+.swatches { display: flex; gap: 6px; flex-wrap: wrap; }
+.sw { width: 28px; height: 28px; border-radius: 50%; border: 2px solid transparent; background: var(--c); }
+.sw[aria-pressed="true"] { border-color: var(--ink); box-shadow: 0 0 0 2px var(--surface) inset; }
+
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 9px 16px; border-radius: 8px; font-size: 14px; z-index: 20; max-width: calc(100% - 32px); }
+.toast.err { background: var(--ng); color: #fff; }
+@media (prefers-reduced-motion: no-preference) { .toast { animation: up .2s ease-out; } @keyframes up { from { transform: translate(-50%, 8px); opacity: 0; } } }
+</style>
+
+<header class="top">
+  <div class="top-in">
+    <div class="brand"><h1>シフトボード</h1><span class="store" id="store-name"></span><span class="role" id="role">読み込み中</span></div>
+    <nav class="tabs" role="tablist" id="tabs"></nav>
+  </div>
+</header>
+<main id="main"></main>
+<div id="toast-root"></div>
+
+<script>
+"use strict";
+const GCAL = "Google Calendar";
+const APP_URL = "https://claude.ai/artifact/RSUbvNbKGrUHdXPQVzTSP2";
+const WD = ["日", "月", "火", "水", "木", "金", "土"];
+const TABS = [["cal", "カレンダー"], ["req", "希望シフト"], ["sum", "勤務時間・給料"], ["staff", "スタッフ・設定"]];
+const MARK = { ok: "〇", part: "△", ng: "×" };
+const CYCLE = { "": "ok", ok: "part", part: "ng", ng: "" };
+
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const pad = n => String(n).padStart(2, "0");
+const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const ymOf = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+const parseYmd = s => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+const startOfWeek = d => addDays(d, -d.getDay());
+const toMin = t => { if (!t || !/^\d{1,2}:\d{2}$/.test(t)) return NaN; const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+const clock = m => `${pad(Math.floor(m / 60) % 24)}:${pad(m % 60)}`;
+const hrs = m => `${Math.floor(m / 60)}:${pad(Math.round(m % 60))}`;
+const shortT = t => t && t.endsWith(":00") ? String(Number(t.slice(0, 2))) : (t || "");
+const yen = n => "¥" + Math.round(n).toLocaleString("ja-JP");
+const md = s => { const d = parseYmd(s); return `${d.getMonth() + 1}/${d.getDate()}(${WD[d.getDay()]})`; };
+
+function span(s) { const a = toMin(s.start); let b = toMin(s.end); if (isNaN(a) || isNaN(b)) return null; if (b <= a) b += 1440; return { a, b }; }
+const ov = (a, b, c, d) => Math.max(0, Math.min(b, d) - Math.max(a, c));
+// 実働・深夜(22-5時)・残業(1日8時間超)を分で返す
+function calc(s) {
+  const sp = span(s); if (!sp) return { work: 0, night: 0, over: 0 };
+  const total = sp.b - sp.a, brk = Math.min(Number(s.breakMin) || 0, total), work = total - brk;
+  const night = Math.min(work, ov(sp.a, sp.b, 0, 300) + ov(sp.a, sp.b, 1320, 1740) + ov(sp.a, sp.b, 2760, 3180));
+  return { work, night, over: Math.max(0, work - 480) };
+}
+const payOf = (c, wage) => { const w = Number(wage) || 0; return (c.work * w + c.night * w * 0.25 + c.over * w * 0.25) / 60; };
+// 労働基準法の休憩: 6時間超で45分、8時間超で60分
+function suggestBreak(start, end) { const sp = span({ start, end }); if (!sp) return 0; const t = sp.b - sp.a; return t > 480 ? 60 : t > 360 ? 45 : 0; }
+
+const pref = { get(k, d) { try { return localStorage.getItem("sb." + k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem("sb." + k, v); } catch {} } };
+
+const now = new Date();
+const S = {
+  dbState: "loading", dbErr: "", db: null, mcp: null, user: null,
+  admin: false, canWrite: null, uid: null,
+  staff: [], shifts: [], reqs: [], settings: { storeName: "", deadlineDay: 20, open: 8, close: 24 }, gsync: {},
+  tab: pref.get("tab", "cal"), calMode: pref.get("calMode", "month"), sel: ymd(now),
+  form: blankForm(), confirmDel: null,
+  req: { staffId: pref.get("me", ""), days: {}, note: "", dirty: false },
+  sf: { id: null, name: "", wage: "", color: 0, email: "" }, setf: null,
+  gcal: { who: "all", invite: false, confirm: null, running: false, msg: null },
+  toast: null,
+};
+function blankForm() { return { editing: null, staffId: "", start: "10:00", end: "17:00", breakMin: 45, breakTouched: false, note: "" }; }
+const selDate = () => parseYmd(S.sel);
+const monthFirst = () => { const d = selDate(); return new Date(d.getFullYear(), d.getMonth(), 1); };
+const curYm = () => ymOf(selDate());
+const staffById = id => S.staff.find(s => s.id === id);
+const colorVar = st => `--c:var(--c${(st && st.color) || 0})`;
+const nameOf = id => staffById(id)?.name || "（削除済み）";
+const byStart = (a, b) => (toMin(a.start) - toMin(b.start)) || nameOf(a.staffId).localeCompare(nameOf(b.staffId), "ja");
+const shiftsOn = ds => S.shifts.filter(s => s.date === ds).sort(byStart);
+const shiftsInMonth = () => { const k = curYm(); return S.shifts.filter(s => s.date.startsWith(k)).sort((a, b) => a.date.localeCompare(b.date) || byStart(a, b)); };
+const reqOf = staffId => S.reqs.find(r => r.staffId === staffId && r.month === curYm());
+function reqsOnDay(ds) {
+  const key = ds.slice(8, 10), out = [];
+  for (const r of S.reqs) { if (r.month !== ds.slice(0, 7)) continue; const v = r.days?.[key]; if (v && v.k && staffById(r.staffId)) out.push({ staffId: r.staffId, ...v }); }
+  return out;
+}
+
+/* ---------- render ---------- */
+function render() {
+  const fa = document.activeElement, fid = fa && fa.id, selStart = fa && "selectionStart" in fa ? (() => { try { return fa.selectionStart; } catch { return null; } })() : null;
+  document.getElementById("store-name").textContent = S.settings.storeName || "";
+  const role = document.getElementById("role");
+  role.textContent = S.dbState === "loading" ? "読み込み中" : S.admin ? "管理者" : "スタッフ";
+  role.className = "role" + (S.admin ? " admin" : "");
+  document.getElementById("tabs").innerHTML = TABS.map(([k, l]) => `<button role="tab" id="tab-${k}" aria-selected="${S.tab === k}" data-act="tab" data-v="${k}">${l}</button>`).join("");
+  let html = banners();
+  html += S.tab === "cal" ? renderCal() : S.tab === "req" ? renderReq() : S.tab === "sum" ? renderSum() : renderStaff();
+  document.getElementById("main").innerHTML = html;
+  document.getElementById("toast-root").innerHTML = S.toast ? `<div class="toast ${S.toast.err ? "err" : ""}" role="status">${esc(S.toast.text)}</div>` : "";
+  if (fid) { const el = document.getElementById(fid); if (el && el !== document.activeElement) { el.focus({ preventScroll: true }); if (selStart != null) try { el.setSelectionRange(selStart, selStart); } catch {} } }
+}
+
+function banners() {
+  if (S.dbState === "loading") return `<div class="banner">シフトデータを読み込んでいます…</div>`;
+  if (S.dbState === "none") return `<div class="banner err"><span>シフトデータは claude.ai に保存されています。シフトの確認や希望の提出は、claude.ai にサインインしてから本番ページで行ってください。</span><a class="btn primary small" href="${APP_URL}" target="_blank" rel="noopener">本番ページを開く</a></div>`;
+  let b = "";
+  if (S.dbErr) b += `<div class="banner err">${esc(S.dbErr)}</div>`;
+  if (!S.staff.length) b += S.admin
+    ? `<div class="banner warn"><span>まだスタッフが登録されていません。最初にスタッフの名前と時給を登録すると、シフトを組めるようになります。</span><button class="btn primary small" data-act="tab" data-v="staff">スタッフを登録する</button></div>`
+    : `<div class="banner warn">管理者がスタッフを登録すると、ここにシフトが表示されます。</div>`;
+  return b;
+}
+
+function monthNav(label) {
+  return `<div class="nav"><button class="arrow" data-act="prevm" aria-label="前の月">‹</button><h2 class="period">${label}</h2><button class="arrow" data-act="nextm" aria-label="次の月">›</button><button class="btn small" data-act="today">今月</button></div>`;
+}
+const monthLabel = () => { const d = monthFirst(); return `${d.getFullYear()}年${d.getMonth() + 1}月`; };
+
+/* カレンダー */
+function renderCal() {
+  let nav;
+  if (S.calMode === "month") nav = monthNav(monthLabel());
+  else { const ws = startOfWeek(selDate()), we = addDays(ws, 6); nav = `<div class="nav"><button class="arrow" data-act="prevw" aria-label="前の週">‹</button><h2 class="period">${ws.getMonth() + 1}/${ws.getDate()} – ${we.getMonth() + 1}/${we.getDate()}</h2><button class="arrow" data-act="nextw" aria-label="次の週">›</button><button class="btn small" data-act="today">今日</button></div>`; }
+  return `<div class="cal-layout">
+    <section class="panel">
+      <div class="toolbar">${nav}
+        <div class="seg" role="group" aria-label="表示切り替え"><button id="mode-month" data-act="mode" data-v="month" aria-pressed="${S.calMode === "month"}">月</button><button id="mode-week" data-act="mode" data-v="week" aria-pressed="${S.calMode === "week"}">週（シフト表）</button></div>
+      </div>
+      ${S.calMode === "month" ? monthGrid() : weekTable()}
+    </section>
+    <aside class="panel">${renderDay()}</aside>
+  </div>`;
+}
+
+function monthGrid() {
+  const first = monthFirst(), dim = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+  const weeks = Math.ceil((first.getDay() + dim) / 7), gs = startOfWeek(first), todayS = ymd(new Date());
+  let h = `<div class="month">` + WD.map((w, i) => `<div class="wd d${i}">${w}</div>`).join("");
+  for (let i = 0; i < weeks * 7; i++) {
+    const d = addDays(gs, i), ds = ymd(d), out = d.getMonth() !== first.getMonth();
+    const list = shiftsOn(ds);
+    const chips = list.slice(0, 3).map(s => `<span class="chip" style="${colorVar(staffById(s.staffId))}">${esc(nameOf(s.staffId))} <i>${shortT(s.start)}-${shortT(s.end)}</i></span>`).join("")
+      + (list.length > 3 ? `<span class="more">ほか${list.length - 3}人</span>` : "");
+    let rq = "";
+    if (!out) { const r = reqsOnDay(ds); const c = k => r.filter(x => x.k === k).length; const parts = ["ok", "part", "ng"].filter(k => c(k)).map(k => `<span class="${k}">${MARK[k]}${c(k)}</span>`).join(""); if (parts) rq = `<span class="rq" title="希望シフト">${parts}</span>`; }
+    h += `<button class="cell d${d.getDay()} ${out ? "out" : ""} ${ds === S.sel ? "sel" : ""} ${ds === todayS ? "today" : ""}" id="cell-${ds}" data-act="pick" data-d="${ds}" aria-label="${d.getMonth() + 1}月${d.getDate()}日 シフト${list.length}件"><span class="dnum">${d.getDate()}</span><span class="chips">${chips}</span>${rq}</button>`;
+  }
+  return h + `</div>`;
+}
+
+function weekTable() {
+  const ws = startOfWeek(selDate()), days = [...Array(7)].map((_, i) => ymd(addDays(ws, i)));
+  if (!S.staff.length) return `<p class="muted">スタッフを登録すると、ここに 1 週間分のシフト表が表示されます。</p>`;
+  let h = `<div class="scroll"><table class="week"><thead><tr><th class="name">スタッフ</th>`;
+  h += days.map(ds => { const d = parseYmd(ds); const col = d.getDay() === 0 ? "var(--sun)" : d.getDay() === 6 ? "var(--sat)" : "inherit"; return `<th class="${ds === S.sel ? "sel" : ""}"><button id="wh-${ds}" data-act="pick" data-d="${ds}" style="color:${col}">${d.getMonth() + 1}/${d.getDate()} ${WD[d.getDay()]}</button></th>`; }).join("") + `</tr></thead><tbody>`;
+  for (const st of S.staff) {
+    h += `<tr><th class="name"><span class="dot" style="${colorVar(st)}"></span>${esc(st.name)}</th>`;
+    for (const ds of days) {
+      const sh = S.shifts.filter(s => s.date === ds && s.staffId === st.id).sort(byStart);
+      const rq = reqsOnDay(ds).find(r => r.staffId === st.id);
+      let c = sh.map(s => `<div class="wshift" style="${colorVar(st)}">${s.start}–${s.end}</div>`).join("");
+      if (!c && rq) c = `<div class="wreq ${rq.k}">${MARK[rq.k]}${rq.k === "part" && rq.start ? ` ${rq.start}–${rq.end}` : ""}</div>`;
+      h += `<td class="${ds === S.sel ? "sel" : ""}" data-act="pick" data-d="${ds}">${c}</td>`;
+    }
+    h += `</tr>`;
+  }
+  h += `</tbody><tfoot><tr><td>人数 / 実働</td>` + days.map(ds => { const l = shiftsOn(ds); const w = l.reduce((a, s) => a + calc(s).work, 0); return `<td class="num">${l.length}人 / ${hrs(w)}</td>`; }).join("") + `</tr></tfoot></table></div>`;
+  return h;
+}
+
+function renderDay() {
+  const d = selDate(), list = shiftsOn(S.sel), o = S.settings.open * 60, c = Math.max(S.settings.close * 60, o + 60), range = c - o;
+  let h = `<div class="day-head"><h2>${d.getMonth() + 1}月${d.getDate()}日（${WD[d.getDay()]}）</h2><span class="muted num">${list.length}人</span></div>`;
+  // タイムライン
+  let ticks = ""; const step = range > 14 * 60 ? 180 : 120;
+  for (let t = Math.ceil(o / step) * step; t < c; t += step) ticks += `<div class="tick" style="left:${(t - o) / range * 100}%"><span>${t / 60 % 24}</span></div>`;
+  h += `<div class="timeline" aria-label="時間帯ごとの配置"><div class="ticks">${ticks}</div>`;
+  h += list.length ? list.map(s => { const sp = span(s); if (!sp) return ""; const L = Math.max(0, (sp.a - o) / range * 100), R = Math.min(100, (sp.b - o) / range * 100); const st = staffById(s.staffId); return `<div class="bar" style="${colorVar(st)}"><div style="left:${L}%;width:${Math.max(R - L, 1)}%" title="${esc(nameOf(s.staffId))} ${s.start}–${s.end}">${esc(nameOf(s.staffId))}</div></div>`; }).join("") : `<div class="empty-tl">この日はまだシフトがありません。</div>`;
+  h += `</div>`;
+  // シフト一覧
+  if (list.length) {
+    h += `<div class="section-title">シフト</div><ul class="slist">` + list.map(s => {
+      const st = staffById(s.staffId), cc = calc(s), synced = S.gsync[s.id];
+      let ctl = "";
+      if (S.admin) ctl = S.confirmDel === s.id
+        ? `<span class="row"><button class="btn small danger" id="del-yes-${s.id}" data-act="delshift" data-id="${s.id}">削除する</button><button class="btn small" id="del-no-${s.id}" data-act="cancelDel">やめる</button></span>`
+        : `<span class="row"><button class="btn small" id="edit-${s.id}" data-act="editshift" data-id="${s.id}">編集</button><button class="btn small" id="askdel-${s.id}" data-act="askDel" data-id="${s.id}">削除</button></span>`;
+      return `<li><span class="dot" style="${colorVar(st)}"></span><span><span class="who">${esc(nameOf(s.staffId))}</span> <span class="mono">${s.start}–${s.end}</span></span>${ctl}
+        <span class="meta">休憩 ${Number(s.breakMin) || 0}分 ・ 実働 <span class="num">${hrs(cc.work)}</span>${cc.night ? ` ・ 深夜 <span class="num">${hrs(cc.night)}</span>` : ""}${synced ? " ・ カレンダー登録済み" : ""}${s.note ? `<br>${esc(s.note)}` : ""}</span></li>`;
+    }).join("") + `</ul>`;
+  }
+  // 希望
+  const rq = reqsOnDay(S.sel);
+  h += `<div class="section-title">この日の希望</div>`;
+  if (!rq.length) h += `<p class="hint">提出された希望はありません。</p>`;
+  else h += `<div class="reqgrp">` + ["ok", "part", "ng"].flatMap(k => rq.filter(r => r.k === k).map(r => {
+    const already = list.some(s => s.staffId === r.staffId);
+    const add = S.admin && k !== "ng" && !already ? `<button class="btn small" id="fill-${r.staffId}" data-act="fillFromReq" data-id="${r.staffId}">シフトに入れる</button>` : "";
+    return `<div class="reqline"><span class="mark ${k}">${MARK[k]}</span><span class="dot" style="${colorVar(staffById(r.staffId))}"></span>${esc(nameOf(r.staffId))}${k === "part" && r.start ? ` <span class="mono muted">${r.start}–${r.end}</span>` : ""}${already ? `<span class="hint">配置済み</span>` : ""}${add}</div>`;
+  })).join("") + `</div>`;
+  // 追加フォーム
+  if (S.admin && S.staff.length) {
+    const f = S.form;
+    h += `<div class="section-title">${f.editing ? "シフトを編集" : "シフトを追加"}</div>
+    <form class="form" id="shift-form" data-form="shift">
+      <label class="f full">スタッフ<select id="f-staff" data-bind="form.staffId" required><option value="">選んでください</option>${S.staff.map(st => `<option value="${st.id}" ${st.id === f.staffId ? "selected" : ""}>${esc(st.name)}</option>`).join("")}</select></label>
+      <label class="f">開始<input type="time" id="f-start" data-bind="form.start" value="${f.start}" required step="300"></label>
+      <label class="f">終了<input type="time" id="f-end" data-bind="form.end" value="${f.end}" required step="300"></label>
+      <label class="f">休憩（分）<input type="number" id="f-break" data-bind="form.breakMin" value="${f.breakMin}" min="0" step="5" inputmode="numeric"></label>
+      <label class="f">メモ<input id="f-note" data-bind="form.note" value="${esc(f.note)}" placeholder="例: レジ担当"></label>
+      <p class="hint full">終了が開始より早いと、日をまたぐ夜勤として計算します。休憩は 6 時間超で 45 分、8 時間超で 60 分を自動で入れます。</p>
+      <div class="row full"><button class="btn primary" id="f-submit" type="submit">${f.editing ? "変更を保存" : "追加する"}</button>${f.editing ? `<button class="btn" type="button" id="f-cancel" data-act="cancelEdit">やめる</button>` : ""}</div>
+    </form>`;
+  }
+  h += gcalBox("day", list);
+  return h;
+}
+
+/* Googleカレンダー */
+function gcalBox(scope, all) {
+  const g = S.gcal, list = all.filter(s => g.who === "all" || s.staffId === g.who), pending = list.filter(s => !S.gsync[s.id]);
+  let h = `<div class="gcal"><h3>Googleカレンダーに登録</h3>`;
+  if (S.dbState === "ready" && !S.mcp) return h + `<p class="hint">この画面では Google カレンダー連携を使えません。claude.ai で開くと使えます。</p></div>`;
+  h += `<p class="hint">${scope === "day" ? "この日" : "この月"}のシフトを、ページを開いているあなたの Google カレンダーに予定として追加します。</p>
+    <label class="f">だれのシフト<select id="gcal-who-${scope}" data-bind="gcal.who"><option value="all">全員</option>${S.staff.map(st => `<option value="${st.id}" ${g.who === st.id ? "selected" : ""}>${esc(st.name)}</option>`).join("")}</select></label>`;
+  if (S.admin && S.staff.some(st => st.email)) h += `<label class="row hint"><input type="checkbox" id="gcal-invite-${scope}" data-bind="gcal.invite" ${g.invite ? "checked" : ""}> メールアドレスを登録したスタッフに招待メールを送る</label>`;
+  h += `<p class="hint">対象 ${list.length} 件${list.length - pending.length ? `（あなたが登録済みの ${list.length - pending.length} 件は除きます）` : ""}</p>`;
+  if (g.confirm === scope && !g.running) h += `<div class="row"><span>${pending.length} 件を登録します。</span><button class="btn primary small" id="gcal-go-${scope}" data-act="gcalGo" data-scope="${scope}">登録する</button><button class="btn small" id="gcal-no-${scope}" data-act="gcalCancel">やめる</button></div>`;
+  else h += `<div><button class="btn" id="gcal-ask-${scope}" data-act="gcalAsk" data-scope="${scope}" ${!pending.length || g.running || !S.mcp ? "disabled" : ""}>${g.running ? "登録中…" : "カレンダーに登録…"}</button></div>`;
+  if (g.msg) h += `<div class="msg ${g.msg.kind}" role="status">${esc(g.msg.text)}</div>`;
+  h += `<p class="hint">登録後にシフトを変えた場合は、カレンダー側の予定も直してください。</p></div>`;
+  return h;
+}
+
+function gcalErrText(e) {
+  switch (e && e.code) {
+    case "needs_reauth": return "Google カレンダーの接続が切れています。claude.ai の「設定 → コネクタ」で Google Calendar を接続し直してください。";
+    case "server_not_connected": return "Google カレンダーがまだ接続されていません。claude.ai の「設定 → コネクタ」で Google Calendar を追加してください。";
+    case "selection_required": return "Google Calendar の接続が複数あります。表示された画面で使う接続を選んでから、もう一度登録してください。";
+    case "not_in_manifest": return "このページでの Google カレンダー利用が許可されていません。ページ上部の権限メニューから許可できます。";
+    case "blocked_by_policy": case "approval_required": return "組織の設定により、ここから Google カレンダーに登録できません。";
+    case "server_unavailable": case "rate_limited": return "Google カレンダーに接続できませんでした。しばらく待ってから、カレンダーに同じ予定がないか確かめて、もう一度お試しください。";
+    case "tool_error": return "Google カレンダーが登録を受け付けませんでした: " + (e.message || "");
+    case "not_granted": case "capability_disabled": case "capability_removed": return "この画面では Google カレンダー連携を使えません。";
+    default: return "登録できませんでした。カレンダーに予定が入っていないか確かめてから、もう一度お試しください。";
+  }
+}
+
+async function gcalRun(scope) {
+  const all = scope === "day" ? shiftsOn(S.sel) : shiftsInMonth();
+  const list = all.filter(s => (S.gcal.who === "all" || s.staffId === S.gcal.who) && !S.gsync[s.id]);
+  if (!S.mcp || !list.length) return;
+  Object.assign(S.gcal, { confirm: null, running: true, msg: { kind: "", text: `0 / ${list.length} 件を登録しました…` } }); render();
+  const synced = { ...S.gsync }; let done = 0;
+  for (const s of list) {
+    const st = staffById(s.staffId), sp = span(s); if (!sp) continue;
+    const endDay = sp.b >= 1440 ? ymd(addDays(parseYmd(s.date), 1)) : s.date;
+    const input = {
+      summary: `${st ? st.name : "スタッフ"} シフト${S.settings.storeName ? `（${S.settings.storeName}）` : ""}`,
+      startTime: `${s.date}T${s.start}:00+09:00`, endTime: `${endDay}T${clock(sp.b % 1440)}:00+09:00`, timeZone: "Asia/Tokyo",
+      description: `休憩 ${Number(s.breakMin) || 0}分${s.note ? "\n" + s.note : ""}\nシフトボードから登録`,
+    };
+    if (S.gcal.invite && st && st.email) input.attendees = [{ email: st.email, displayName: st.name }];
+    try {
+      await S.mcp.callTool(GCAL, "create_event", input);
+      done++; synced[s.id] = Date.now(); S.gsync = { ...synced };
+      S.gcal.msg = { kind: "", text: `${done} / ${list.length} 件を登録しました…` }; render();
+    } catch (e) { S.gcal.msg = { kind: "err", text: `${done} 件を登録したところで止まりました。${gcalErrText(e)}` }; break; }
+  }
+  S.gcal.running = false;
+  if (done === list.length) S.gcal.msg = { kind: "ok", text: `${done} 件を Google カレンダーに登録しました。` };
+  render();
+  if (done) saveGsync();
+}
+async function saveGsync() {
+  if (S.db && S.uid) { try { await S.db.doc(`data/users/${S.uid}/gcal`).set({ ids: S.gsync }); return; } catch {} }
+  pref.set("gsync", JSON.stringify(S.gsync));
+}
+
+/* 希望シフト */
+function renderReq() {
+  const first = monthFirst(), dim = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate(), r = S.req;
+  const dl = Number(S.settings.deadlineDay) || 0, prev = new Date(first.getFullYear(), first.getMonth() - 1, 1);
+  const own = r.staffId ? reqOf(r.staffId) : null;
+  let h = `<section class="panel"><div class="toolbar">${monthNav(monthLabel() + "の希望")}${dl ? `<span class="hint">提出期限 ${prev.getMonth() + 1}月${dl}日</span>` : ""}</div>`;
+  if (!S.staff.length) return h + `<p class="muted">スタッフが登録されると、ここから希望シフトを出せます。</p></section>` + matrix();
+  h += `<div class="row" style="margin-bottom:12px"><label class="f" style="min-width:12em">あなたの名前<select id="req-staff" data-bind="req.staffId"><option value="">選んでください</option>${S.staff.map(st => `<option value="${st.id}" ${st.id === r.staffId ? "selected" : ""}>${esc(st.name)}</option>`).join("")}</select></label>
+    ${r.staffId ? (own ? `<span class="status done">提出済み ${new Date(own.updatedAt).getMonth() + 1}/${new Date(own.updatedAt).getDate()}</span>` : `<span class="status">未提出</span>`) : ""}${r.dirty ? `<span class="hint">未保存の変更があります</span>` : ""}</div>`;
+  if (!r.staffId) return h + `<p class="hint">名前を選ぶと、日付をタップして希望を入力できます。</p></section>` + matrix();
+  h += `<div class="legend" style="margin-bottom:10px"><span>日付をタップするたびに切り替わります:</span><span class="ok">〇 終日OK</span><span class="part">△ 時間指定</span><span class="ng">× 入れない</span><span class="muted">空白 未定</span></div>`;
+  h += `<div class="reqgrid">` + WD.map((w, i) => `<div class="hint" style="text-align:center;color:${i === 0 ? "var(--sun)" : i === 6 ? "var(--sat)" : ""}">${w}</div>`).join("");
+  for (let i = 0; i < first.getDay(); i++) h += `<div class="rday blank"></div>`;
+  for (let d = 1; d <= dim; d++) {
+    const key = pad(d), v = r.days[key], k = (v && v.k) || "", dow = new Date(first.getFullYear(), first.getMonth(), d).getDay();
+    h += `<button class="rday d${dow} ${k ? "k-" + k : ""}" id="rd-${key}" data-act="reqCycle" data-k="${key}" aria-label="${d}日 ${k ? { ok: "終日OK", part: "時間指定", ng: "入れない" }[k] : "未定"}"><span class="n">${d}</span><span class="m ${k}">${MARK[k] || ""}</span></button>`;
+  }
+  h += `</div>`;
+  const parts = Object.keys(r.days).filter(k => r.days[k].k === "part").sort();
+  if (parts.length) h += `<div class="section-title">△ の日の時間</div><div class="partlist">` + parts.map(k => { const v = r.days[k]; return `<div class="partrow"><span class="mono" style="width:5.5em">${first.getMonth() + 1}/${Number(k)}(${WD[new Date(first.getFullYear(), first.getMonth(), Number(k)).getDay()]})</span><input type="time" id="rp-s-${k}" data-bind="req.days.${k}.start" value="${v.start || ""}" step="300" aria-label="${Number(k)}日の開始"> 〜 <input type="time" id="rp-e-${k}" data-bind="req.days.${k}.end" value="${v.end || ""}" step="300" aria-label="${Number(k)}日の終了"></div>`; }).join("") + `</div>`;
+  h += `<label class="f" style="margin-top:14px">店長へのメモ<textarea id="req-note" data-bind="req.note" placeholder="例: 15日は午後から授業があります">${esc(r.note)}</textarea></label>`;
+  const ro = S.canWrite === false;
+  h += `<div class="row" style="margin-top:12px"><button class="btn primary" id="req-submit" data-act="reqSubmit" ${ro ? "disabled" : ""}>${own ? "希望を更新する" : "希望を提出する"}</button>${r.dirty ? `<button class="btn" id="req-reset" data-act="reqReset">変更を取り消す</button>` : ""}${ro ? `<span class="hint">閲覧のみの権限のため提出できません。管理者に「参加者（Contributor）」以上の権限をもらってください。</span>` : ""}</div>`;
+  return h + `</section>` + matrix();
+}
+
+function matrix() {
+  if (!S.staff.length) return "";
+  const first = monthFirst(), dim = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+  let h = `<section class="panel"><div class="toolbar"><h3>みんなの提出状況</h3><span class="hint">${S.staff.filter(st => reqOf(st.id)).length} / ${S.staff.length} 人提出</span></div><div class="scroll"><table class="matrix"><thead><tr><th class="name">スタッフ</th>`;
+  for (let d = 1; d <= dim; d++) { const dow = new Date(first.getFullYear(), first.getMonth(), d).getDay(); h += `<th style="color:${dow === 0 ? "var(--sun)" : dow === 6 ? "var(--sat)" : ""}">${d}</th>`; }
+  h += `</tr></thead><tbody>`;
+  for (const st of S.staff) {
+    const r = reqOf(st.id);
+    h += `<tr><th class="name"><span class="dot" style="${colorVar(st)}"></span>${esc(st.name)} ${r ? "" : `<span class="status">未提出</span>`}</th>`;
+    for (let d = 1; d <= dim; d++) { const v = r && r.days && r.days[pad(d)]; h += `<td class="${v ? v.k : ""}" title="${v && v.k === "part" ? `${v.start || ""}–${v.end || ""}` : ""}">${v ? MARK[v.k] || "" : ""}</td>`; }
+    h += `</tr>`;
+    if (r && r.note) h += `<tr><td colspan="${dim + 1}" style="text-align:left" class="hint">メモ: ${esc(r.note)}</td></tr>`;
+  }
+  return h + `</tbody></table></div></section>`;
+}
+
+/* 集計 */
+function renderSum() {
+  const list = shiftsInMonth(), rows = [];
+  for (const st of S.staff) {
+    const mine = list.filter(s => s.staffId === st.id);
+    const t = mine.reduce((a, s) => { const c = calc(s); a.work += c.work; a.night += c.night; a.over += c.over; a.pay += payOf(c, st.wage); return a; }, { work: 0, night: 0, over: 0, pay: 0 });
+    rows.push({ st, days: new Set(mine.map(s => s.date)).size, ...t });
+  }
+  const tot = rows.reduce((a, r) => ({ work: a.work + r.work, night: a.night + r.night, over: a.over + r.over, pay: a.pay + r.pay, days: a.days + r.days }), { work: 0, night: 0, over: 0, pay: 0, days: 0 });
+  const max = Math.max(1, ...rows.map(r => r.work));
+  let h = `<section class="panel"><div class="toolbar">${monthNav(monthLabel() + "の集計")}</div>
+    <div class="kpis"><div class="kpi"><div class="l">シフト件数</div><div class="v num">${list.length}</div></div><div class="kpi"><div class="l">総実働時間</div><div class="v num">${hrs(tot.work)}</div></div><div class="kpi"><div class="l">人件費の目安</div><div class="v num">${yen(tot.pay)}</div></div></div>`;
+  if (!rows.length) h += `<p class="muted">スタッフを登録してシフトを入れると、ここに一人ずつの勤務時間と給料の目安が出ます。</p>`;
+  else {
+    h += `<div class="scroll"><table class="sum"><thead><tr><th class="name">スタッフ</th><th>出勤日数</th><th>実働</th><th>うち深夜</th><th>8時間超</th><th>時給</th><th>給料の目安</th></tr></thead><tbody>`;
+    h += rows.map(r => `<tr><td class="name"><span class="dot" style="${colorVar(r.st)}"></span>${esc(r.st.name)}<div class="hbar" style="${colorVar(r.st)};width:${r.work / max * 100}%"></div></td><td>${r.days}日</td><td>${hrs(r.work)}</td><td>${hrs(r.night)}</td><td>${hrs(r.over)}</td><td>${r.st.wage ? yen(r.st.wage) : `<span class="muted">未設定</span>`}</td><td>${yen(r.pay)}</td></tr>`).join("");
+    h += `</tbody><tfoot><tr><td class="name">合計</td><td>${tot.days}日</td><td>${hrs(tot.work)}</td><td>${hrs(tot.night)}</td><td>${hrs(tot.over)}</td><td></td><td>${yen(tot.pay)}</td></tr></tfoot></table></div>`;
+    h += `<p class="hint">給料の目安 = 実働 × 時給 ＋ 深夜（22時〜翌5時）の割増 25% ＋ 1 日 8 時間を超えた分の割増 25%。交通費・週 40 時間超の残業・税金は含みません。休憩は深夜以外の時間に取った前提で計算しています。</p>`;
+  }
+  return h + `</section><section class="panel">${gcalBox("month", list)}</section>`;
+}
+
+/* スタッフ・設定 */
+function renderStaff() {
+  let h = `<div class="two"><section class="panel"><div class="toolbar"><h3>スタッフ（${S.staff.length}人）</h3></div>`;
+  h += S.staff.length ? `<ul class="slist">` + S.staff.map(st => {
+    let ctl = "";
+    if (S.admin) ctl = S.confirmDel === "st:" + st.id
+      ? `<span class="row"><button class="btn small danger" id="sdel-yes-${st.id}" data-act="delStaff" data-id="${st.id}">削除する</button><button class="btn small" id="sdel-no-${st.id}" data-act="cancelDel">やめる</button></span>`
+      : `<span class="row"><button class="btn small" id="sedit-${st.id}" data-act="editStaff" data-id="${st.id}">編集</button><button class="btn small" id="sask-${st.id}" data-act="askDel" data-id="st:${st.id}">削除</button></span>`;
+    return `<li><span class="dot" style="${colorVar(st)}"></span><span class="who">${esc(st.name)}</span>${ctl}<span class="meta">時給 ${st.wage ? yen(st.wage) : "未設定"}${S.admin && st.email ? ` ・ ${esc(st.email)}` : ""}</span></li>`;
+  }).join("") + `</ul>` : `<p class="muted">まだ誰も登録されていません。${S.admin ? "右のフォームから追加してください。" : ""}</p>`;
+  h += `</section>`;
+  if (S.admin) {
+    const f = S.sf;
+    h += `<div style="display:flex;flex-direction:column;gap:16px;min-width:0"><section class="panel"><div class="toolbar"><h3>${f.id ? "スタッフを編集" : "スタッフを追加"}</h3></div>
+      <form class="form" id="staff-form" data-form="staff">
+        <label class="f full">名前<input id="s-name" data-bind="sf.name" value="${esc(f.name)}" required maxlength="20" placeholder="例: 山田"></label>
+        <label class="f">時給（円）<input type="number" id="s-wage" data-bind="sf.wage" value="${esc(f.wage)}" min="0" step="1" inputmode="numeric" placeholder="例: 1000"></label>
+        <label class="f">メール（任意）<input type="email" id="s-email" data-bind="sf.email" value="${esc(f.email)}" placeholder="カレンダー招待に使います"></label>
+        <div class="f full">色<div class="swatches" role="group" aria-label="色">${[...Array(8)].map((_, i) => `<button type="button" class="sw" id="sw-${i}" style="--c:var(--c${i})" aria-pressed="${f.color === i}" aria-label="色 ${i + 1}" data-act="pickColor" data-v="${i}"></button>`).join("")}</div></div>
+        <p class="hint full">メールアドレスはこのページを開ける人全員に読まれる場所に保存されます。不要なら空欄のままにしてください。</p>
+        <div class="row full"><button class="btn primary" id="s-submit" type="submit">${f.id ? "変更を保存" : "追加する"}</button>${f.id ? `<button class="btn" type="button" id="s-cancel" data-act="cancelStaff">やめる</button>` : ""}</div>
+      </form></section>`;
+    const sf = S.setf || { ...S.settings };
+    h += `<section class="panel"><div class="toolbar"><h3>お店の設定</h3></div>
+      <form class="form" id="set-form" data-form="settings">
+        <label class="f full">お店の名前<input id="set-name" data-bind="setf.storeName" value="${esc(sf.storeName)}" maxlength="40" placeholder="例: カフェ文京店"></label>
+        <label class="f">希望の提出期限（前月の何日）<input type="number" id="set-dl" data-bind="setf.deadlineDay" value="${esc(sf.deadlineDay)}" min="1" max="31"></label>
+        <span></span>
+        <label class="f">タイムラインの開始（時）<input type="number" id="set-open" data-bind="setf.open" value="${esc(sf.open)}" min="0" max="23"></label>
+        <label class="f">タイムラインの終了（時）<input type="number" id="set-close" data-bind="setf.close" value="${esc(sf.close)}" min="1" max="30"></label>
+        <p class="hint full">終了を 24 より大きくすると、翌朝までの夜勤も表示できます（例: 29 = 翌 5 時）。</p>
+        <div class="row full"><button class="btn primary" id="set-submit" type="submit">設定を保存</button></div>
+      </form></section></div>`;
+  } else h += `<section class="panel"><h3>スタッフの登録について</h3><p class="muted">スタッフの追加・時給・お店の設定は管理者だけが変更できます。希望シフトは「希望シフト」タブから出せます。</p></section>`;
+  return h + `</div>`;
+}
+
+/* ---------- actions ---------- */
+function toast(text, err) { S.toast = { text, err }; render(); clearTimeout(toast.t); toast.t = setTimeout(() => { S.toast = null; render(); }, err ? 6000 : 2600); }
+function dbErrText(e) {
+  switch (e && e.code) {
+    case "invalid_argument": return "保存できませんでした。この操作をする権限がないか、入力内容に問題があります。";
+    case "quota_exceeded": return "保存できる量の上限に達しました。古いシフトを削除してから、もう一度お試しください。";
+    case "resource_exhausted": return "操作が続きすぎました。少し待ってからもう一度お試しください。";
+    case "revoked": return "このページへのアクセス権が変わりました。ページを開き直してください。";
+    default: return "保存できませんでした。通信状況を確かめて、もう一度お試しください。";
+  }
+}
+async function write(fn, ok) { if (!S.db) { toast("シフトデータに接続できていないため保存できません。", true); return false; } try { await fn(); if (ok) toast(ok); return true; } catch (e) { toast(dbErrText(e), true); return false; } }
+
+function setSel(ds) { const prevYm = curYm(); S.sel = ds; if (curYm() !== prevYm) { subscribeMonth(); if (!S.req.dirty) loadReqDraft(); } }
+function moveMonth(n) { const f = monthFirst(), t = new Date(f.getFullYear(), f.getMonth() + n, 1), td = new Date(); setSel(ymOf(t) === ymOf(td) ? ymd(td) : ymd(t)); S.req.dirty = false; loadReqDraft(); }
+
+function loadReqDraft() {
+  const r = S.req, doc = r.staffId ? reqOf(r.staffId) : null;
+  r.days = doc && doc.days ? JSON.parse(JSON.stringify(doc.days)) : {}; r.note = (doc && doc.note) || ""; r.dirty = false;
+}
+
+const A = {
+  tab(t) { S.tab = t.dataset.v; pref.set("tab", S.tab); S.confirmDel = null; S.gcal.confirm = null; },
+  mode(t) { S.calMode = t.dataset.v; pref.set("calMode", S.calMode); },
+  prevm() { moveMonth(-1); }, nextm() { moveMonth(1); },
+  prevw() { setSel(ymd(addDays(selDate(), -7))); }, nextw() { setSel(ymd(addDays(selDate(), 7))); },
+  today() { setSel(ymd(new Date())); },
+  pick(t) { setSel(t.dataset.d); S.confirmDel = null; if (S.gcal.confirm === "day") S.gcal.confirm = null; },
+  askDel(t) { S.confirmDel = t.dataset.id; }, cancelDel() { S.confirmDel = null; },
+  async delshift(t) { S.confirmDel = null; await write(() => S.db.doc("shifts/" + t.dataset.id).delete(), "シフトを削除しました"); if (S.form.editing === t.dataset.id) S.form = blankForm(); },
+  editshift(t) { const s = S.shifts.find(x => x.id === t.dataset.id); if (!s) return; S.form = { editing: s.id, staffId: s.staffId, start: s.start, end: s.end, breakMin: Number(s.breakMin) || 0, breakTouched: true, note: s.note || "" }; queueMicrotask(() => document.getElementById("f-staff")?.focus()); },
+  cancelEdit() { S.form = blankForm(); },
+  fillFromReq(t) { const r = reqsOnDay(S.sel).find(x => x.staffId === t.dataset.id); if (!r) return; const start = r.k === "part" && r.start ? r.start : S.form.start, end = r.k === "part" && r.end ? r.end : S.form.end; S.form = { ...blankForm(), staffId: r.staffId, start, end, breakMin: suggestBreak(start, end) }; queueMicrotask(() => document.getElementById("f-submit")?.focus()); },
+  reqCycle(t) { const r = S.req, k = t.dataset.k, cur = (r.days[k] && r.days[k].k) || "", next = CYCLE[cur]; if (next) r.days[k] = { ...(r.days[k] || {}), k: next }; else delete r.days[k]; r.dirty = true; },
+  reqReset() { loadReqDraft(); },
+  async reqSubmit() {
+    const r = S.req; if (!r.staffId) return;
+    for (const k of Object.keys(r.days)) { const v = r.days[k]; if (v.k === "part" && (!v.start || !v.end)) { toast(`${Number(k)}日の △ に時間を入れてください。`, true); return; } if (v.k !== "part") { delete v.start; delete v.end; } }
+    const ok = await write(() => S.db.doc(`requests/${r.staffId}_${curYm()}`).set({ staffId: r.staffId, month: curYm(), days: r.days, note: r.note.trim(), updatedAt: Date.now(), by: S.uid || null }), "希望シフトを提出しました");
+    if (ok) r.dirty = false;
+  },
+  pickColor(t) { S.sf.color = Number(t.dataset.v); },
+  editStaff(t) { const st = staffById(t.dataset.id); if (st) S.sf = { id: st.id, name: st.name, wage: st.wage ?? "", color: st.color || 0, email: st.email || "" }; },
+  cancelStaff() { S.sf = { id: null, name: "", wage: "", color: (S.staff.length) % 8, email: "" }; },
+  async delStaff(t) { S.confirmDel = null; await write(() => S.db.doc("staff/" + t.dataset.id).delete(), "スタッフを削除しました（過去のシフトは残ります）"); },
+  gcalAsk(t) { S.gcal.confirm = t.dataset.scope; S.gcal.msg = null; },
+  gcalCancel() { S.gcal.confirm = null; },
+  gcalGo(t) { gcalRun(t.dataset.scope); return true; },
+};
+
+document.addEventListener("click", e => {
+  const t = e.target.closest("[data-act]"); if (!t || !A[t.dataset.act]) return;
+  const r = A[t.dataset.act](t, e);
+  if (r && typeof r.then === "function") r.then(render); else if (r !== true) render();
+});
+
+function setBind(path, value) {
+  const parts = path.split("."); let o = S;
+  for (let i = 0; i < parts.length - 1; i++) { if (o[parts[i]] == null) o[parts[i]] = {}; o = o[parts[i]]; }
+  o[parts[parts.length - 1]] = value;
+}
+document.addEventListener("input", e => {
+  const t = e.target, b = t.dataset && t.dataset.bind; if (!b || t.tagName === "SELECT" || t.type === "checkbox") return;
+  if (b === "setf.storeName" || b.startsWith("setf.")) { if (!S.setf) S.setf = { ...S.settings }; }
+  setBind(b, t.value);
+  if (b.startsWith("req.")) S.req.dirty = true;
+  if (b === "form.breakMin") S.form.breakTouched = true;
+});
+document.addEventListener("change", e => {
+  const t = e.target, b = t.dataset && t.dataset.bind; if (!b) return;
+  if (b.startsWith("setf.") && !S.setf) S.setf = { ...S.settings };
+  setBind(b, t.type === "checkbox" ? t.checked : t.value);
+  if ((b === "form.start" || b === "form.end") && !S.form.breakTouched) S.form.breakMin = suggestBreak(S.form.start, S.form.end);
+  if (b === "req.staffId") { pref.set("me", S.req.staffId); loadReqDraft(); }
+  if (b.startsWith("req.days")) S.req.dirty = true;
+  if (b === "gcal.who") { S.gcal.confirm = null; S.gcal.msg = null; }
+  if (t.tagName === "SELECT" || t.type === "checkbox" || t.type === "time" || b === "form.breakMin") render();
+});
+
+document.addEventListener("submit", async e => {
+  const form = e.target.closest("form[data-form]"); if (!form) return;
+  e.preventDefault();
+  const kind = form.dataset.form;
+  if (kind === "shift") {
+    const f = S.form;
+    if (!f.staffId) return toast("スタッフを選んでください。", true);
+    if (!span(f)) return toast("開始と終了の時刻を入れてください。", true);
+    const dup = S.shifts.find(s => s.date === S.sel && s.staffId === f.staffId && s.id !== f.editing);
+    const data = { date: S.sel, staffId: f.staffId, start: f.start, end: f.end, breakMin: Math.max(0, Number(f.breakMin) || 0), note: f.note.trim(), updatedAt: Date.now() };
+    const ok = await write(() => f.editing ? S.db.doc("shifts/" + f.editing).set(data) : S.db.collection("shifts").add(data), f.editing ? "シフトを変更しました" : (dup ? "シフトを追加しました（同じ日に 2 回目の勤務です）" : "シフトを追加しました"));
+    if (ok) S.form = { ...blankForm(), start: f.start, end: f.end, breakMin: f.breakMin, breakTouched: f.breakTouched };
+  } else if (kind === "staff") {
+    const f = S.sf, name = f.name.trim();
+    if (!name) return toast("名前を入れてください。", true);
+    const data = { name, wage: f.wage === "" ? null : Math.max(0, Math.round(Number(f.wage))), color: f.color, email: f.email.trim() || null, order: f.id ? (staffById(f.id)?.order ?? Date.now()) : Date.now() };
+    const ok = await write(() => f.id ? S.db.doc("staff/" + f.id).set(data) : S.db.collection("staff").add(data), f.id ? "スタッフを更新しました" : `${name}さんを追加しました`);
+    if (ok) S.sf = { id: null, name: "", wage: "", color: (S.staff.length + (f.id ? 0 : 1)) % 8, email: "" };
+  } else if (kind === "settings") {
+    const f = S.setf || S.settings;
+    const open = Math.min(23, Math.max(0, Number(f.open) || 0)), close = Math.min(30, Math.max(open + 1, Number(f.close) || 24));
+    const data = { storeName: String(f.storeName || "").trim(), deadlineDay: Math.min(31, Math.max(1, Number(f.deadlineDay) || 20)), open, close };
+    const ok = await write(() => S.db.doc("settings/main").set(data), "設定を保存しました");
+    if (ok) S.setf = null;
+  }
+  render();
+});
+
+/* ---------- data ---------- */
+let unsubShifts = null, unsubReqs = null, subKey = "";
+function onDbErr(e) { S.dbErr = e && e.code === "revoked" ? "このページへのアクセス権が変わりました。ページを開き直してください。" : "データの更新が止まりました。ページを開き直してください。"; render(); }
+function subscribeMonth() {
+  if (!S.db) return; const key = curYm(); if (key === subKey) return; subKey = key;
+  if (unsubShifts) unsubShifts(); if (unsubReqs) unsubReqs();
+  const gs = startOfWeek(monthFirst()), ge = addDays(gs, 42);
+  unsubShifts = S.db.collection("shifts").where("date", ">=", ymd(gs)).where("date", "<", ymd(ge)).onSnapshot(snap => { S.shifts = snap.docs.map(d => ({ id: d.id, ...d.data() })); render(); }, onDbErr);
+  unsubReqs = S.db.collection("requests").where("month", "==", key).onSnapshot(snap => { S.reqs = snap.docs.map(d => ({ id: d.id, ...d.data() })); if (!S.req.dirty) loadReqDraft(); render(); }, onDbErr);
+}
+
+render();
+(async () => {
+  const use = n => (window.claude && window.claude.use ? window.claude.use(n).catch(() => null) : Promise.resolve(null));
+  const [db, user, mcp] = await Promise.all([use("db"), use("user"), use("mcp")]);
+  S.mcp = mcp; S.user = user;
+  if (user) { const [adm, cw, id] = await Promise.all([user.canEdit(), user.can("data.write"), user.id()]); S.admin = adm; S.canWrite = cw; S.uid = id; }
+  if (!db) { S.dbState = "none"; render(); return; }
+  S.db = db; S.dbState = "ready";
+  try { S.gsync = JSON.parse(pref.get("gsync", "{}")) || {}; } catch { S.gsync = {}; }
+  db.collection("staff").onSnapshot(snap => {
+    S.staff = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.order || 0) - (b.order || 0));
+    if (S.req.staffId && !staffById(S.req.staffId)) S.req.staffId = "";
+    if (!S.sf.id && !S.sf.name) S.sf.color = S.staff.length % 8;
+    render();
+  }, onDbErr);
+  db.doc("settings/main").onSnapshot(snap => { if (snap.exists) S.settings = { ...S.settings, ...snap.data() }; render(); }, onDbErr);
+  if (S.uid) db.doc(`data/users/${S.uid}/gcal`).get().then(s => { if (s.exists && s.data().ids) { S.gsync = { ...S.gsync, ...s.data().ids }; render(); } }).catch(() => {});
+  subscribeMonth();
+  render();
+})();
+</script>
