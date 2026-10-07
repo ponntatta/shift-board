@@ -70,7 +70,7 @@ main { max-width: 1240px; margin: 0 auto; padding-inline: 16px; padding-block: 1
 .banner.warn { border-color: var(--part); }
 .banner.err { border-color: var(--ng); }
 
-.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 7px 14px; font-weight: 500; }
+.btn { white-space: nowrap; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 7px 14px; font-weight: 500; }
 .btn:hover { background: var(--sunken); }
 a.btn { display: inline-block; text-decoration: none; color: var(--ink); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
@@ -118,6 +118,18 @@ a.btn { display: inline-block; text-decoration: none; color: var(--ink); }
 .need-ok { color: var(--ok); font-weight: 700; }
 .need-ng { color: var(--ng); font-weight: 700; }
 .needrow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 5.5em auto; gap: 8px; align-items: end; }
+.rqcell { min-height: 118px; }
+.rqchip { display: block; font-size: 11.5px; line-height: 1.4; padding: 0 4px; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rqchip b { margin-right: 2px; }
+.rqchip.ok { background: color-mix(in srgb, var(--ok) 13%, transparent); }
+.rqchip.part { background: color-mix(in srgb, var(--part) 14%, transparent); }
+.rqchip.ng { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--ng) 60%, transparent); }
+.rqchip i { font-style: normal; font-family: var(--f-mono); font-size: 10.5px; color: var(--muted); }
+.rqcount { font-size: 11px; font-family: var(--f-mono); color: var(--muted); }
+.rqcount.lack { color: var(--ng); font-weight: 700; }
+.plan-day { display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 6px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.plan-day:last-child { border-bottom: 0; }
+.plan-list { max-height: 360px; overflow-y: auto; }
 .week tfoot tr.shortrow td { color: var(--ng); font-weight: 700; background: color-mix(in srgb, var(--ng) 8%, var(--surface)); }
 @media (max-width: 640px) {
   .cell { min-height: 64px; padding: 3px; }
@@ -126,6 +138,8 @@ a.btn { display: inline-block; text-decoration: none; color: var(--ink); }
   .chips { gap: 2px; }
   .rq { display: none; }
   .short .det { display: none; }
+  .rqcell { min-height: 64px; }
+  .rqcell .rqchip { display: none; }
   .short { font-size: 9.5px; padding: 0 2px; text-align: center; }
   .needrow { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .period { font-size: 17px; min-width: 0; }
@@ -283,6 +297,7 @@ const S = {
   req: { staffId: pref.get("me", ""), days: {}, note: "", dirty: false },
   sf: { id: null, name: "", wage: "", color: 0, email: "" }, setf: null, priv: {},
   staffing: { byDow: {} }, need: null, needDow: 1,
+  auto: { skipPast: true, plan: null, running: false, msg: null },
   gcal: { who: "all", invite: false, confirm: null, running: false, msg: null },
   toast: null,
 };
@@ -308,10 +323,10 @@ const NEED_DOW = [1, 2, 3, 4, 5, 6, 0];
 const fmtT = m => (m >= 1440 ? "翌" : "") + clock(m);
 const slotsFor = ds => ((S.staffing.byDow || {})[parseYmd(ds).getDay()] || []).filter(s => span(s) && Number(s.need) > 0);
 // その日の時間帯ごとに、必要人数に届かない区間を { from, to, short, need } で返す（分は当日 0:00 起点）
-function shortages(ds) {
+function shortages(ds, shifts) {
   const slots = slotsFor(ds); if (!slots.length) return [];
   const d = parseYmd(ds), prev = ymd(addDays(d, -1)), next = ymd(addDays(d, 1)), iv = [];
-  for (const s of S.shifts) {
+  for (const s of shifts || S.shifts) {
     const off = s.date === ds ? 0 : s.date === prev ? -1440 : s.date === next ? 1440 : null; if (off === null) continue;
     const sp = span(s); if (sp) iv.push([sp.a + off, sp.b + off]);
   }
@@ -337,9 +352,11 @@ function render() {
   const role = document.getElementById("role");
   role.textContent = S.dbState === "loading" ? "読み込み中" : S.admin ? "管理者" : "スタッフ";
   role.className = "role" + (S.admin ? " admin" : "");
-  document.getElementById("tabs").innerHTML = TABS.map(([k, l]) => `<button role="tab" id="tab-${k}" aria-selected="${S.tab === k}" data-act="tab" data-v="${k}">${l}</button>`).join("");
+  const tabs = S.admin ? [TABS[0], ["reqcal", "希望カレンダー"], ...TABS.slice(1)] : TABS;
+  if (S.tab === "reqcal" && !S.admin && S.dbState !== "loading") S.tab = "cal";
+  document.getElementById("tabs").innerHTML = tabs.map(([k, l]) => `<button role="tab" id="tab-${k}" aria-selected="${S.tab === k}" data-act="tab" data-v="${k}">${l}</button>`).join("");
   let html = banners();
-  html += S.tab === "cal" ? renderCal() : S.tab === "req" ? renderReq() : S.tab === "sum" ? renderSum() : renderStaff();
+  html += S.tab === "cal" ? renderCal() : S.tab === "reqcal" ? (S.admin ? renderReqCal() : "") : S.tab === "req" ? renderReq() : S.tab === "sum" ? renderSum() : renderStaff();
   document.getElementById("main").innerHTML = html;
   document.getElementById("toast-root").innerHTML = S.toast ? `<div class="toast ${S.toast.err ? "err" : ""}" role="status">${esc(S.toast.text)}</div>` : "";
   if (fid) { const el = document.getElementById(fid); if (el && el !== document.activeElement) { el.focus({ preventScroll: true }); if (selStart != null) try { el.setSelectionRange(selStart, selStart); } catch {} } }
@@ -806,6 +823,135 @@ function renderStaff() {
   return h + `</div>`;
 }
 
+/* 希望カレンダー（管理者だけ） */
+function renderReqCal() {
+  const first = monthFirst(), dim = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+  const weeks = Math.ceil((first.getDay() + dim) / 7), gs = startOfWeek(first), todayS = ymd(new Date());
+  const subm = S.staff.filter(st => reqOf(st.id)), missing = S.staff.filter(st => !reqOf(st.id));
+  let h = `<section class="panel"><div class="toolbar">${monthNav(monthLabel() + "の希望カレンダー")}<span class="hint">提出 ${subm.length} / ${S.staff.length} 人${missing.length ? `（未提出: ${missing.map(st => esc(st.name)).join("、")}）` : ""}</span></div>`;
+  h += `<p class="hint" style="margin:0 0 10px">全員の希望を日付ごとに並べています。「可」は 〇 と △ の人数、「必要」はその日の必要人数の最大です。日付を押すと、その日のシフトを組む画面に移ります。</p>`;
+  h += `<div class="month">` + WD.map((w, i) => `<div class="wd d${i}">${w}</div>`).join("");
+  for (let i = 0; i < weeks * 7; i++) {
+    const d = addDays(gs, i), ds = ymd(d), out = d.getMonth() !== first.getMonth();
+    let body = "";
+    if (!out) {
+      const r = reqsOnDay(ds), order = { ok: 0, part: 1, ng: 2 };
+      r.sort((a, b) => order[a.k] - order[b.k] || S.staff.findIndex(s => s.id === a.staffId) - S.staff.findIndex(s => s.id === b.staffId));
+      const can = r.filter(x => x.k !== "ng").length, need = Math.max(0, ...slotsFor(ds).map(s => Math.round(Number(s.need))));
+      body = `<span class="rqcount ${need && can < need ? "lack" : ""}">可${can}${need ? ` / 必要${need}` : ""}</span>`
+        + r.map(x => `<span class="rqchip ${x.k}"><b class="${x.k}">${MARK[x.k]}</b>${esc(nameOf(x.staffId))}${x.k === "part" && x.start ? ` <i>${shortT(x.start)}-${shortT(x.end)}</i>` : ""}</span>`).join("");
+    }
+    h += `<button class="cell rqcell d${d.getDay()} ${out ? "out" : ""} ${ds === todayS ? "today" : ""}" id="rc-${ds}" data-act="openDay" data-d="${ds}" aria-label="${d.getMonth() + 1}月${d.getDate()}日の希望"><span class="dnum">${d.getDate()}</span>${body}</button>`;
+  }
+  h += `</div></section>`;
+  return h + autoPanel();
+}
+
+/* 希望からシフトを自動で組む: 必要人数に足りない時間を、その月の勤務時間が少ない人から順に埋める */
+const MAX_SHIFT = 9 * 60;
+const cmpKey = (x, y) => { for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; };
+function availOf(staffId, ds) {
+  const r = reqOf(staffId), v = r && r.days && r.days[ds.slice(8, 10)];
+  if (!v) return null;
+  if (v.k === "ok") return { a: 0, b: 2880 };
+  if (v.k === "part" && v.start && v.end) return span(v);
+  return null;
+}
+function autoPlan() {
+  const first = monthFirst(), dim = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate(), k = curYm(), today = ymd(new Date());
+  const pool = S.shifts.map(s => ({ ...s }));
+  const mins = {}, days = {};
+  for (const st of S.staff) { mins[st.id] = 0; days[st.id] = new Set(); }
+  for (const s of pool) if (s.date.startsWith(k) && mins[s.staffId] != null) { mins[s.staffId] += calc(s).work; days[s.staffId].add(s.date); }
+  const before = { ...mins }, added = [];
+  const mk = (ds, staffId, a, b) => { const start = clock(a), end = clock(b % 1440); return { _new: true, date: ds, staffId, start, end, breakMin: suggestBreak(start, end) }; };
+  for (let d = 1; d <= dim; d++) {
+    const ds = `${k}-${pad(d)}`;
+    if (S.auto.skipPast && ds < today) continue;
+    const slots = slotsFor(ds).slice().sort((x, y) => span(x).a - span(y).a);
+    for (const sl of slots) {
+      const ssp = span(sl);
+      for (let guard = 0; guard < 60; guard++) {
+        const segs = shortages(ds, pool).filter(x => x.from < ssp.b && x.to > ssp.a); if (!segs.length) break;
+        const seg = segs[0];
+        // 埋める範囲: この時間帯の中で人が足りない最初から最後まで（足りている時間には入れない）
+        const lo = Math.max(ssp.a, seg.from), hi = Math.min(ssp.b, Math.max(...segs.map(x => x.to)));
+        let best = null;
+        S.staff.forEach((st, idx) => {
+          const av = availOf(st.id, ds); if (!av) return;
+          let a = Math.max(lo, av.a), b = Math.min(hi, av.b);
+          if (!(a < seg.to && b > seg.from)) return;
+          if (b - a < 60) { b = Math.min(ssp.b, av.b, a + 60); if (b - a < 60) a = Math.max(ssp.a, av.a, b - 60); if (b - a < 60) return; }
+          if (b - a > MAX_SHIFT) b = a + MAX_SHIFT; // 長すぎる分は切って、残りは別の人で埋める
+          const mine = pool.filter(s => s.date === ds && s.staffId === st.id);
+          if (mine.some(s => !s._new)) return; // すでに確定シフトがある日は増やさない
+          const adj = mine.find(s => { const p = span(s); return p.b === a || p.a === b; });
+          if (mine.length && !adj) return;
+          if (mine.some(s => { const p = span(s); return p.a < b && p.b > a; })) return;
+          // 同じ日の案とつながる場合は 1 つのシフトに延ばす（合計 9 時間まで）
+          let na = a, nb = b;
+          if (adj) {
+            const p = span(adj);
+            if (p.b === a) { na = p.a; nb = Math.min(b, p.a + MAX_SHIFT); b = nb; }
+            else { nb = p.b; na = Math.max(a, p.b - MAX_SHIFT); a = na; }
+            if (b - a < 60) return;
+          }
+          const full = a <= seg.from && b >= seg.to ? 0 : 1; // 足りない区間を丸ごと埋められる人を優先
+          const key = [full, mins[st.id], days[st.id].size, (idx - d + S.staff.length * 40) % S.staff.length];
+          if (!best || cmpKey(key, best.key) < 0) best = { st, na, nb, adj, key };
+        });
+        if (!best) break;
+        const id = best.st.id;
+        if (best.adj) { mins[id] -= calc(best.adj).work; const i = pool.indexOf(best.adj), j = added.indexOf(best.adj); const nx = mk(ds, id, best.na, best.nb); pool[i] = nx; added[j] = nx; mins[id] += calc(nx).work; }
+        else { const nx = mk(ds, id, best.na, best.nb); pool.push(nx); added.push(nx); mins[id] += calc(nx).work; days[id].add(ds); }
+      }
+    }
+  }
+  const unfilled = [];
+  for (let d = 1; d <= dim; d++) { const ds = `${k}-${pad(d)}`; if (S.auto.skipPast && ds < today) continue; const sg = shortages(ds, pool); if (sg.length) unfilled.push({ ds, sg }); }
+  added.sort((a, b) => a.date.localeCompare(b.date) || toMin(a.start) - toMin(b.start));
+  return { month: k, added, before, after: mins, unfilled, hasSlots: S.staff.length && [...Array(dim)].some((_, i) => slotsFor(`${k}-${pad(i + 1)}`).length) };
+}
+function autoPanel() {
+  const a = S.auto, p = a.plan && a.plan.month === curYm() ? a.plan : null;
+  let h = `<section class="panel"><div class="toolbar"><h3>希望からシフトを自動で組む</h3></div>
+    <p class="hint" style="margin:0 0 10px">必要人数に足りない時間を、〇 と △ の希望がある人で埋めます。その月の勤務時間の合計がなるべく全員で同じになるよう、少ない人から順に入れます。× や未記入の日、未提出の人には入れません。すでに入っているシフトはそのまま残します。1 人 1 日 9 時間まで。</p>
+    <label class="row hint"><input type="checkbox" id="auto-skip" data-bind="auto.skipPast" ${a.skipPast ? "checked" : ""}> 今日より前の日は対象にしない</label>
+    <div class="row" style="margin-top:10px"><button class="btn primary" id="auto-make" data-act="autoMake" ${a.running ? "disabled" : ""}>${monthLabel()}の案を作る</button>${p ? `<button class="btn" id="auto-clear" data-act="autoClear" ${a.running ? "disabled" : ""}>案を消す</button>` : ""}</div>`;
+  if (a.msg) h += `<div class="msg ${a.msg.kind}" role="status" style="margin-top:10px">${esc(a.msg.text)}</div>`;
+  if (p) {
+    if (!p.hasSlots) return h + `<p class="msg err" style="margin-top:10px">必要人数が設定されていないため、案を作れません。「スタッフ・設定」タブの「必要人数（営業時間）」を先に入れてください。</p></section>`;
+    const rows = S.staff.map(st => ({ st, b: p.before[st.id] || 0, f: p.after[st.id] || 0, n: p.added.filter(x => x.staffId === st.id).length, sub: !!reqOf(st.id) }));
+    h += `<div class="section-title">案: ${p.added.length} 件のシフトを追加</div>
+      <div class="scroll"><table class="sum"><thead><tr><th class="name">スタッフ</th><th>今の勤務</th><th>追加</th><th>追加後の合計</th></tr></thead><tbody>`
+      + rows.map(r => `<tr><td class="name"><span class="dot" style="${colorVar(r.st)}"></span>${esc(r.st.name)}${r.sub ? "" : ` <span class="status">未提出</span>`}</td><td>${hrs(r.b)}</td><td>${r.n ? `+${hrs(r.f - r.b)}（${r.n}件）` : "—"}</td><td>${hrs(r.f)}</td></tr>`).join("") + `</tbody></table></div>`;
+    if (p.added.length) {
+      const byDay = {}; for (const s of p.added) (byDay[s.date] = byDay[s.date] || []).push(s);
+      h += `<div class="section-title">追加するシフト</div><div class="plan-list">` + Object.keys(byDay).map(ds => `<div class="plan-day"><span class="mono">${md(ds)}</span><span>${byDay[ds].map(s => `<span class="dot" style="${colorVar(staffById(s.staffId))}"></span>${esc(nameOf(s.staffId))} <span class="mono">${s.start}–${s.end}</span>`).join("　")}</span></div>`).join("") + `</div>`;
+    }
+    h += `<div class="section-title">案を入れても足りない時間</div>`;
+    h += p.unfilled.length ? `<div class="plan-list">` + p.unfilled.map(u => `<div class="plan-day need-ng"><span class="mono">${md(u.ds)}</span><span>${u.sg.map(shortText).join("、")}</span></div>`).join("") + `</div><p class="hint">希望を出している人だけでは埋まりません。スタッフに声をかけるか、手で入れてください。</p>` : `<p class="need-ok">すべての時間帯が埋まります。</p>`;
+    if (p.added.length) h += a.confirm
+      ? `<div class="row" style="margin-top:12px"><span>${p.added.length} 件のシフトを保存します。</span><button class="btn primary" id="auto-go" data-act="autoApply" ${a.running ? "disabled" : ""}>保存する</button><button class="btn" id="auto-no" data-act="autoNo">やめる</button></div>`
+      : `<div class="row" style="margin-top:12px"><button class="btn primary" id="auto-ask" data-act="autoAsk" ${a.running ? "disabled" : ""}>この内容でシフトに入れる…</button></div>`;
+  }
+  return h + `</section>`;
+}
+async function autoApply() {
+  const p = S.auto.plan; if (!p || !p.added.length || S.auto.running) return;
+  if (p.month !== curYm()) return;
+  S.auto.running = true; S.auto.confirm = false; let done = 0;
+  S.auto.msg = { kind: "", text: `0 / ${p.added.length} 件を保存しました…` }; render();
+  try {
+    for (const s of p.added) {
+      await S.db.collection("shifts").add({ date: s.date, staffId: s.staffId, start: s.start, end: s.end, breakMin: s.breakMin, note: "", auto: true, updatedAt: Date.now() });
+      done++; S.auto.msg = { kind: "", text: `${done} / ${p.added.length} 件を保存しました…` }; render();
+    }
+    S.auto.msg = { kind: "ok", text: `${done} 件のシフトを保存しました。カレンダーで確認・修正できます。` }; S.auto.plan = null;
+  } catch (e) { S.auto.msg = { kind: "err", text: `${done} 件を保存したところで止まりました。${dbErrText(e)}` }; S.auto.plan = null; }
+  S.auto.running = false; render();
+}
+
 function needPanel() {
   const src = S.need || S.staffing, dow = S.needDow, slots = ((src.byDow || {})[dow]) || [];
   let h = `<section class="panel"><div class="toolbar"><h3>必要人数（営業時間）</h3>${S.need ? `<span class="hint">未保存の変更があります</span>` : ""}</div>
@@ -862,6 +1008,12 @@ const A = {
   reqCycle(t) { const r = S.req, k = t.dataset.k, cur = (r.days[k] && r.days[k].k) || "", next = CYCLE[cur]; if (next) r.days[k] = { ...(r.days[k] || {}), k: next }; else delete r.days[k]; r.dirty = true; },
   reqReset() { loadReqDraft(); },
   needDow(t) { S.needDow = Number(t.dataset.v); },
+  openDay(t) { setSel(t.dataset.d); S.tab = "cal"; pref.set("tab", "cal"); window.scrollTo({ top: 0 }); },
+  autoMake() { S.auto.plan = autoPlan(); S.auto.confirm = false; S.auto.msg = null; },
+  autoClear() { S.auto.plan = null; S.auto.confirm = false; S.auto.msg = null; },
+  autoAsk() { S.auto.confirm = true; },
+  autoNo() { S.auto.confirm = false; },
+  autoApply() { autoApply(); return true; },
   needAdd() {
     const n = needDraft(), list = n.byDow[S.needDow], open = Number(S.settings.open) || 0, close = Number(S.settings.close) || 24;
     const last = list[list.length - 1];
