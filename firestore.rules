@@ -2,12 +2,15 @@ rules_version = '2';
 
 // シフトボードのデータを守るルール。
 // Firebase コンソール → Firestore Database → ルール にこの内容を貼り付けて「公開」します。
-// ADMIN_UID は、店長が Google でログインしたときに画面に出る「あなたの ID」に置き換えます。
+// 管理者は、下のアドレスで Google ログインした人だけ（firebase-config.js の adminEmail と同じ）。
 service cloud.firestore {
   match /databases/{database}/documents {
 
     function isAdmin() {
-      return request.auth != null && request.auth.uid == "ADMIN_UID";
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider == "google.com"
+        && request.auth.token.email_verified == true
+        && request.auth.token.email == "masaru20040201@gmail.com";
     }
     // 招待リンクで参加した端末（匿名ログイン）には sessions/<uid> がある
     function isMember() {

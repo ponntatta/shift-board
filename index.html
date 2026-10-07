@@ -312,7 +312,7 @@ const pref = { get(k, d) { try { return localStorage.getItem("sb." + k) ?? d; } 
 
 const now = new Date();
 const S = {
-  dbState: "loading", dbErr: "", db: null, auth: null, authUser: null, adminUid: "", gate: null,
+  dbState: "loading", dbErr: "", db: null, auth: null, authUser: null, adminEmail: "", gate: null,
   admin: false, role: "guest", me: "", tokens: {}, invite: null,
   staff: [], shifts: [], reqs: [], settings: { storeName: "", deadlineDay: 20, open: 8, close: 24 },
   tab: pref.get("tab", "cal"), calMode: pref.get("calMode", "month"), sel: ymd(now),
@@ -395,10 +395,7 @@ function renderGate() {
   let h = `<section class="panel gate"><h2>シフトボード</h2>`;
   if (S.gate && S.gate.kind === "err") h += `<div class="msg err" role="alert">${esc(S.gate.text)}</div>`;
   if (S.gate && S.gate.kind === "uid") {
-    const uid = S.authUser ? S.authUser.uid : "";
     h += `<div class="msg err" role="alert">${S.gate.text ? esc(S.gate.text) + " は" : "このアカウントは"}管理者として登録されていません。</div>`;
-    if (!S.adminUid) h += `<p>管理者として登録するには、次の「あなたの ID」を設定に入れます（Claude に伝えてください）。</p>
-      <div class="row"><input class="mono uidbox" id="uid-box" readonly value="${esc(uid)}" aria-label="あなたの ID"><button class="btn small" id="uid-copy" data-act="copyUid">コピー</button></div>`;
     h += `<p class="hint">別のアカウントで入り直すときは、右上の「ログアウト」を押してください。</p>`;
   }
   h += `<p>スタッフの方は、<b>店長から届いた招待リンク</b>を開いてください。ログインは要りません。一度開けば、次からはこのページを開くだけで使えます。</p>
@@ -1242,7 +1239,10 @@ render();
   if (!window.firebase || !cfg.firebase || !cfg.firebase.apiKey) { S.dbState = "setup"; render(); return; }
   firebase.initializeApp(cfg.firebase);
   const auth = firebase.auth(), db = firebase.firestore();
-  S.auth = auth; S.db = db; S.adminUid = cfg.adminUid || "";
+  S.auth = auth; S.db = db; S.adminEmail = (cfg.adminEmail || "").toLowerCase();
+  // 管理者は、設定したアドレスで Google ログインした人だけ（ルール側でも同じ条件で守る）
+  const isAdminUser = u => !!S.adminEmail && !u.isAnonymous && u.emailVerified && (u.email || "").toLowerCase() === S.adminEmail
+    && u.providerData.some(p => p && p.providerId === "google.com");
   let join = readJoin();
   auth.onAuthStateChanged(async u => {
     stopAll(); S.authUser = u; S.admin = false; S.role = "guest"; S.me = ""; S.gate = null;
@@ -1250,7 +1250,7 @@ render();
       if (join) { try { await auth.signInAnonymously(); } catch (e) { S.dbState = "guest"; S.gate = { kind: "err", text: "参加の準備に失敗しました。通信状況を確かめて、招待リンクを開き直してください。" }; render(); } return; }
       S.dbState = "guest"; render(); return;
     }
-    if (S.adminUid && u.uid === S.adminUid) { S.admin = true; S.role = "admin"; join = null; clearHash(); startData(); return; }
+    if (isAdminUser(u)) { S.admin = true; S.role = "admin"; join = null; clearHash(); startData(); return; }
     S.dbState = "loading"; render();
     if (join) {
       try {
