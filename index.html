@@ -219,6 +219,7 @@ label.f { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; co
 <main id="main"></main>
 <div id="toast-root"></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk" crossorigin="anonymous"></script>
 <script>
 "use strict";
 const GCAL = "Google Calendar";
@@ -325,7 +326,7 @@ function renderCal() {
   return `<div class="cal-layout">
     <section class="panel">
       <div class="toolbar">${nav}
-        <div class="seg" role="group" aria-label="表示切り替え"><button id="mode-month" data-act="mode" data-v="month" aria-pressed="${S.calMode === "month"}">月</button><button id="mode-week" data-act="mode" data-v="week" aria-pressed="${S.calMode === "week"}">週（シフト表）</button></div>
+        <div class="row"><div class="seg" role="group" aria-label="表示切り替え"><button id="mode-month" data-act="mode" data-v="month" aria-pressed="${S.calMode === "month"}">月</button><button id="mode-week" data-act="mode" data-v="week" aria-pressed="${S.calMode === "week"}">週（シフト表）</button></div>${S.staff.length ? pdfButton("cal") : ""}</div>
       </div>
       ${S.calMode === "month" ? monthGrid() : weekTable()}
     </section>
@@ -507,7 +508,7 @@ function renderReq() {
 function matrix() {
   if (!S.staff.length) return "";
   const first = monthFirst(), dim = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
-  let h = `<section class="panel"><div class="toolbar"><h3>みんなの提出状況</h3><span class="hint">${S.staff.filter(st => reqOf(st.id)).length} / ${S.staff.length} 人提出</span></div><div class="scroll"><table class="matrix"><thead><tr><th class="name">スタッフ</th>`;
+  let h = `<section class="panel"><div class="toolbar"><h3>みんなの提出状況</h3><div class="row"><span class="hint">${S.staff.filter(st => reqOf(st.id)).length} / ${S.staff.length} 人提出</span>${pdfButton("req")}</div></div><div class="scroll"><table class="matrix"><thead><tr><th class="name">スタッフ</th>`;
   for (let d = 1; d <= dim; d++) { const dow = new Date(first.getFullYear(), first.getMonth(), d).getDay(); h += `<th style="color:${dow === 0 ? "var(--sun)" : dow === 6 ? "var(--sat)" : ""}">${d}</th>`; }
   h += `</tr></thead><tbody>`;
   for (const st of S.staff) {
@@ -518,6 +519,172 @@ function matrix() {
     if (r && r.note) h += `<tr><td colspan="${dim + 1}" style="text-align:left" class="hint">メモ: ${esc(r.note)}</td></tr>`;
   }
   return h + `</tbody></table></div></section>`;
+}
+
+/* PDF（A4 横）。日本語フォントを PDF に埋め込まずに済むよう、画面のフォントで canvas に描いて貼る */
+function pdfButton(where) {
+  if (!S.downloads) return "";
+  return `<button class="btn small" id="pdf-${where}" data-act="pdf" ${S.pdfBusy ? "disabled" : ""}>${S.pdfBusy ? "PDF を作成中…" : "シフト表・希望を PDF で保存"}</button>`;
+}
+const PDF = {
+  W: 2480, H: 1754, M: 90,
+  F: '"Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", sans-serif', MONO: '"IBM Plex Mono", Consolas, monospace',
+  C: { ink: "#161E2E", muted: "#5A6477", line: "#C9D0DC", head: "#EEF1F5", wkend: "#F3F5F9", wkendHead: "#E2E7EF", ok: "#1D8455", part: "#A86B0C", ng: "#BF3A34", sun: "#BF3A34", sat: "#2148C9" },
+};
+function fitText(g, text, x, y, maxW, weight, size, family) {
+  let s = size; g.font = `${weight} ${s}px ${family}`;
+  while (s > 10 && g.measureText(text).width > maxW) { s -= 1; g.font = `${weight} ${s}px ${family}`; }
+  g.fillText(text, x, y);
+}
+function wrapText(g, text, maxW) {
+  const lines = []; let cur = "";
+  for (const ch of String(text).replace(/\s*\n\s*/g, " ")) { if (g.measureText(cur + ch).width > maxW && cur) { lines.push(cur); cur = ch; } else cur += ch; }
+  if (cur) lines.push(cur);
+  return lines;
+}
+// スタッフ × 日付の表を描き、ページ（canvas）を pages に足す
+function drawGrid(pages, o) {
+  const { W, H, M, F, MONO, C } = PDF;
+  const first = monthFirst(), y0 = first.getFullYear(), m0 = first.getMonth(), dim = new Date(y0, m0 + 1, 0).getDate();
+  const nameW = 250, rightW = o.rightHead ? 150 : 0, colW = (W - 2 * M - nameW - rightW) / dim, headH = 84;
+  // 人数が少ないときは行を高くして読みやすくする（最大 130px）
+  const roomForRows = H - 2 * M - 130 - headH - (o.notes && o.notes.length ? 120 + o.notes.length * 42 : 0);
+  const rowH = Math.max(o.rowH || 76, Math.min(130, Math.floor(roomForRows / (o.rows.length + 1))));
+  const isWkend = d => { const w = new Date(y0, m0, d).getDay(); return w === 0 || w === 6; };
+  const now = new Date(), stamp = `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()} ${pad(now.getHours())}:${pad(now.getMinutes())} 出力`;
+  const title = `${S.settings.storeName ? S.settings.storeName + "　" : ""}${y0}年${m0 + 1}月 ${o.title}`;
+  let g, y, pageNo = 0;
+  function newPage() {
+    const cv = document.createElement("canvas"); cv.width = W; cv.height = H; g = cv.getContext("2d");
+    g.fillStyle = "#FFFFFF"; g.fillRect(0, 0, W, H); g.textBaseline = "middle";
+    g.textAlign = "left"; g.fillStyle = C.ink; g.font = `700 52px ${F}`; g.fillText(title, M, M + 20);
+    g.font = `400 26px ${F}`; g.fillStyle = C.muted; g.fillText(o.subtitle, M, M + 80);
+    pageNo++; g.textAlign = "right"; g.fillText(stamp + (pageNo > 1 ? `　${pageNo} ページ目` : ""), W - M, M + 80);
+    pages.push(cv); y = M + 130;
+  }
+  function grid(top, h) {
+    g.strokeStyle = C.line; g.lineWidth = 2; g.strokeRect(M, top, W - 2 * M, h);
+    g.beginPath();
+    for (let d = 0; d <= dim; d++) { const x = M + nameW + d * colW; if (d === dim && !rightW) break; g.moveTo(x, top); g.lineTo(x, top + h); }
+    g.stroke();
+  }
+  function shade(top, h, base, wk) {
+    g.fillStyle = base; g.fillRect(M, top, W - 2 * M, h);
+    for (let d = 1; d <= dim; d++) if (isWkend(d)) { g.fillStyle = wk; g.fillRect(M + nameW + (d - 1) * colW, top, colW, h); }
+  }
+  function header() {
+    shade(y, headH, C.head, C.wkendHead);
+    g.textAlign = "left"; g.fillStyle = C.ink; g.font = `700 26px ${F}`; g.fillText("スタッフ", M + 16, y + headH / 2);
+    for (let d = 1; d <= dim; d++) {
+      const dow = new Date(y0, m0, d).getDay(), cx = M + nameW + (d - 0.5) * colW;
+      g.fillStyle = dow === 0 ? C.sun : dow === 6 ? C.sat : C.ink; g.textAlign = "center";
+      g.font = `600 26px ${MONO}`; g.fillText(String(d), cx, y + 28); g.font = `400 20px ${F}`; g.fillText(WD[dow], cx, y + 60);
+    }
+    if (rightW) { g.fillStyle = C.ink; g.textAlign = "center"; g.font = `700 24px ${F}`; g.fillText(o.rightHead, W - M - rightW / 2, y + headH / 2); }
+    grid(y, headH); y += headH;
+  }
+  // cell(d) は [{ text, color, weight, size, mono }] の行の配列を返す
+  function drawRow(row, base) {
+    shade(y, rowH, base, base === "#FFFFFF" ? C.wkend : C.wkendHead);
+    g.textAlign = "left"; g.fillStyle = C.ink;
+    if (row.sub) { fitText(g, row.label, M + 16, y + 28, nameW - 28, 700, 28, F); g.fillStyle = row.subColor || C.muted; g.font = `400 20px ${F}`; g.fillText(row.sub, M + 16, y + 58); }
+    else fitText(g, row.label, M + 16, y + rowH / 2, nameW - 28, 700, row.labelSize || 28, F);
+    for (let d = 1; d <= dim; d++) {
+      const lines = row.cell(d); if (!lines || !lines.length) continue;
+      const cx = M + nameW + (d - 0.5) * colW, step = rowH / (lines.length + 1);
+      lines.forEach((ln, i) => { g.textAlign = "center"; g.fillStyle = ln.color || C.ink; fitText(g, ln.text, cx, y + step * (i + 1), colW - 6, ln.weight || 600, ln.size || 20, ln.mono ? MONO : F); });
+    }
+    if (rightW && row.right) { g.textAlign = "center"; g.fillStyle = C.ink; fitText(g, row.right, W - M - rightW / 2, y + rowH / 2, rightW - 16, 600, 24, MONO); }
+    grid(y, rowH); y += rowH;
+  }
+  newPage(); header();
+  for (const row of o.rows) { if (y + rowH > H - M) { newPage(); header(); } drawRow(row, "#FFFFFF"); }
+  if (o.footer) { if (y + rowH > H - M) { newPage(); header(); } drawRow(o.footer, C.head); }
+  if (o.notes && o.notes.length) {
+    y += 50; if (y + 90 > H - M) newPage();
+    g.textAlign = "left"; g.fillStyle = C.ink; g.font = `700 30px ${F}`; g.fillText(o.notesTitle, M, y); y += 52;
+    for (const n of o.notes) {
+      g.font = `400 26px ${F}`;
+      for (const ln of wrapText(g, n, W - 2 * M)) {
+        if (y + 40 > H - M) newPage();
+        g.textAlign = "left"; g.fillStyle = C.ink; g.font = `400 26px ${F}`; g.fillText(ln, M, y); y += 42;
+      }
+    }
+  }
+}
+// 確定シフト表: 誰が・いつ・何時から何時まで入っているか
+function drawShiftPages(pages) {
+  const list = shiftsInMonth(), C = PDF.C, k = curYm();
+  const cnt = d => new Set(list.filter(s => s.date === `${k}-${pad(d)}`).map(s => s.staffId)).size;
+  const total = list.reduce((a, s) => a + calc(s).work, 0);
+  drawGrid(pages, {
+    title: "シフト表", rowH: 84, rightHead: "実働合計",
+    subtitle: `シフト ${list.length} 件　総実働 ${hrs(total)}　各マスは 上が開始・下が終了の時刻（「9」は 9:00、「翌1」は翌日 1:00）`,
+    rows: S.staff.map(st => {
+      const mine = list.filter(s => s.staffId === st.id);
+      return {
+        label: st.name, sub: mine.length ? `${new Set(mine.map(s => s.date)).size}日` : "シフトなし",
+        right: hrs(mine.reduce((a, s) => a + calc(s).work, 0)),
+        cell: d => {
+          const sh = mine.filter(s => s.date === `${k}-${pad(d)}`).sort(byStart); if (!sh.length) return null;
+          const s = sh[0], sp = span(s), next = sp && sp.b >= 1440;
+          const out = [{ text: shortT(s.start), mono: true, size: 30 }, { text: (next ? "翌" : "") + shortT(s.end), mono: true, size: 30, color: C.muted }];
+          if (sh.length > 1) out.push({ text: `他${sh.length - 1}件`, size: 16, color: C.part });
+          return out;
+        },
+      };
+    }),
+    footer: { label: "出勤人数", labelSize: 24, cell: d => [{ text: String(cnt(d)), mono: true, size: 26, color: cnt(d) ? C.ink : C.muted }], right: hrs(total) },
+    notesTitle: "シフトのメモ",
+    notes: list.filter(s => s.note).map(s => `${md(s.date)} ${nameOf(s.staffId)} ${s.start}–${s.end}：${s.note}`),
+  });
+}
+// 希望シフト表
+function drawReqPages(pages) {
+  const C = PDF.C, rows = S.staff.map(st => ({ st, r: reqOf(st.id) }));
+  const can = d => rows.filter(x => { const v = x.r && x.r.days && x.r.days[pad(d)]; return v && (v.k === "ok" || v.k === "part"); }).length;
+  drawGrid(pages, {
+    title: "希望シフト",
+    subtitle: `提出 ${rows.filter(x => x.r).length} / ${rows.length} 人　　〇 終日OK　△ 時間指定（下に時刻）　× 入れない`,
+    rows: rows.map(({ st, r }) => ({
+      label: st.name, sub: r ? "" : "未提出", subColor: C.ng,
+      cell: d => {
+        const v = r && r.days && r.days[pad(d)]; if (!v || !v.k) return null;
+        const out = [{ text: MARK[v.k], color: C[v.k], weight: 700, size: 34 }];
+        if (v.k === "part" && v.start) out.push({ text: `${shortT(v.start)}-${shortT(v.end)}`, mono: true, size: 18, color: C[v.k] });
+        return out;
+      },
+    })),
+    footer: { label: "入れる人数", labelSize: 24, cell: d => [{ text: String(can(d)), mono: true, size: 26, color: can(d) ? C.ink : C.muted }] },
+    notesTitle: "スタッフからのメモ",
+    notes: rows.filter(x => x.r && x.r.note).map(x => `${x.st.name}：${x.r.note}`),
+  });
+}
+function pdfErrText(e) {
+  switch (e && e.code) {
+    case "rate_limited": return "保存の確認画面がすでに開いています。そちらで保存するか閉じてから、もう一度押してください。";
+    case "too_large": return "PDF が大きすぎて保存できませんでした。";
+    case "rejected_extension": case "extension_not_enabled": return "この画面では PDF を保存できません。";
+    case "unavailable": case "not_granted": case "capability_disabled": case "capability_removed": return "この画面ではファイルを保存できません。claude.ai で開くと保存できます。";
+    default: return "PDF を保存できませんでした。もう一度お試しください。";
+  }
+}
+async function savePdf() {
+  if (!S.downloads || S.pdfBusy) return;
+  if (!window.jspdf || !window.jspdf.jsPDF) { toast("PDF を作る部品を読み込めませんでした。ページを開き直してください。", true); return; }
+  S.pdfBusy = true; render();
+  try {
+    try { await Promise.all([document.fonts.load(`700 30px "Zen Kaku Gothic New"`, "希望"), document.fonts.load(`400 26px "Zen Kaku Gothic New"`, "希望"), document.fonts.load(`600 26px "IBM Plex Mono"`, "0")]); } catch {}
+    const pages = []; drawShiftPages(pages); drawReqPages(pages);
+    const pdf = new window.jspdf.jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    pages.forEach((cv, i) => { if (i) pdf.addPage(); pdf.addImage(cv.toDataURL("image/png"), "PNG", 0, 0, 297, 210, undefined, "FAST"); });
+    const res = await S.downloads.save({ filename: `シフト表_${curYm()}.pdf`, data: pdf.output("blob") });
+    S.pdfBusy = false;
+    if (res && res.status === "saved") toast("PDF を保存しました");
+  } catch (e) {
+    S.pdfBusy = false;
+    if (!(e && e.code === "declined")) toast(pdfErrText(e), true);
+  } finally { S.pdfBusy = false; render(); }
 }
 
 /* 集計 */
@@ -614,6 +781,7 @@ const A = {
   fillFromReq(t) { const r = reqsOnDay(S.sel).find(x => x.staffId === t.dataset.id); if (!r) return; const start = r.k === "part" && r.start ? r.start : S.form.start, end = r.k === "part" && r.end ? r.end : S.form.end; S.form = { ...blankForm(), staffId: r.staffId, start, end, breakMin: suggestBreak(start, end) }; queueMicrotask(() => document.getElementById("f-submit")?.focus()); },
   reqCycle(t) { const r = S.req, k = t.dataset.k, cur = (r.days[k] && r.days[k].k) || "", next = CYCLE[cur]; if (next) r.days[k] = { ...(r.days[k] || {}), k: next }; else delete r.days[k]; r.dirty = true; },
   reqReset() { loadReqDraft(); },
+  pdf() { savePdf(); return true; },
   async reqSubmit() {
     const r = S.req; if (!r.staffId) return;
     for (const k of Object.keys(r.days)) { const v = r.days[k]; if (v.k === "part" && (!v.start || !v.end)) { toast(`${Number(k)}日の △ に時間を入れてください。`, true); return; } if (v.k !== "part") { delete v.start; delete v.end; } }
@@ -700,8 +868,8 @@ function subscribeMonth() {
 render();
 (async () => {
   const use = n => (window.claude && window.claude.use ? window.claude.use(n).catch(() => null) : Promise.resolve(null));
-  const [db, user, mcp] = await Promise.all([use("db"), use("user"), use("mcp")]);
-  S.mcp = mcp; S.user = user;
+  const [db, user, mcp, downloads] = await Promise.all([use("db"), use("user"), use("mcp"), use("downloads")]);
+  S.mcp = mcp; S.user = user; S.downloads = downloads;
   if (user) { const [adm, cw, id] = await Promise.all([user.canEdit(), user.can("data.write"), user.id()]); S.admin = adm; S.canWrite = cw; S.uid = id; }
   if (!db) { S.dbState = "none"; render(); return; }
   S.db = db; S.dbState = "ready";
