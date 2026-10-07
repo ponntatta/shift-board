@@ -110,12 +110,24 @@ a.btn { display: inline-block; text-decoration: none; color: var(--ink); }
 .more { font-size: 11px; color: var(--muted); padding-left: 4px; }
 .rq { margin-top: auto; display: flex; gap: 6px; font-size: 10.5px; font-family: var(--f-mono); }
 .ok { color: var(--ok); } .part { color: var(--part); } .ng { color: var(--ng); }
+.short { display: block; font-size: 11px; line-height: 1.35; color: #fff; background: var(--ng); border-radius: 4px; padding: 1px 5px; font-weight: 700; overflow-wrap: anywhere; }
+.short .det { font-family: var(--f-mono); font-weight: 600; }
+.cell.has-short { box-shadow: inset 0 -3px 0 var(--ng); }
+.cell.has-short.sel { box-shadow: inset 0 0 0 2px var(--accent), inset 0 -4px 0 var(--ng); }
+.shortzone { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--ng) 18%, transparent); border-left: 2px solid var(--ng); border-right: 2px solid var(--ng); }
+.need-ok { color: var(--ok); font-weight: 700; }
+.need-ng { color: var(--ng); font-weight: 700; }
+.needrow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 5.5em auto; gap: 8px; align-items: end; }
+.week tfoot tr.shortrow td { color: var(--ng); font-weight: 700; background: color-mix(in srgb, var(--ng) 8%, var(--surface)); }
 @media (max-width: 640px) {
   .cell { min-height: 64px; padding: 3px; }
   .chip { font-size: 0; padding: 0; height: 6px; border-left: 0; background: var(--c); border-radius: 3px; }
   .chip i { display: none; }
   .chips { gap: 2px; }
   .rq { display: none; }
+  .short .det { display: none; }
+  .short { font-size: 9.5px; padding: 0 2px; text-align: center; }
+  .needrow { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .period { font-size: 17px; min-width: 0; }
 }
 
@@ -270,6 +282,7 @@ const S = {
   form: blankForm(), confirmDel: null,
   req: { staffId: pref.get("me", ""), days: {}, note: "", dirty: false },
   sf: { id: null, name: "", wage: "", color: 0, email: "" }, setf: null, priv: {},
+  staffing: { byDow: {} }, need: null, needDow: 1,
   gcal: { who: "all", invite: false, confirm: null, running: false, msg: null },
   toast: null,
 };
@@ -289,6 +302,33 @@ function reqsOnDay(ds) {
   for (const r of S.reqs) { if (r.month !== ds.slice(0, 7)) continue; const v = r.days?.[key]; if (v && v.k && staffById(r.staffId)) out.push({ staffId: r.staffId, ...v }); }
   return out;
 }
+
+/* 必要人数と不足 */
+const NEED_DOW = [1, 2, 3, 4, 5, 6, 0];
+const fmtT = m => (m >= 1440 ? "翌" : "") + clock(m);
+const slotsFor = ds => ((S.staffing.byDow || {})[parseYmd(ds).getDay()] || []).filter(s => span(s) && Number(s.need) > 0);
+// その日の時間帯ごとに、必要人数に届かない区間を { from, to, short, need } で返す（分は当日 0:00 起点）
+function shortages(ds) {
+  const slots = slotsFor(ds); if (!slots.length) return [];
+  const d = parseYmd(ds), prev = ymd(addDays(d, -1)), next = ymd(addDays(d, 1)), iv = [];
+  for (const s of S.shifts) {
+    const off = s.date === ds ? 0 : s.date === prev ? -1440 : s.date === next ? 1440 : null; if (off === null) continue;
+    const sp = span(s); if (sp) iv.push([sp.a + off, sp.b + off]);
+  }
+  const out = [];
+  for (const sl of slots) {
+    const sp = span(sl), need = Math.round(Number(sl.need)); let cur = null;
+    for (let t = sp.a; t < sp.b; t += 5) {
+      let c = 0; for (const [a, b] of iv) if (a <= t && t < b) c++;
+      const sh = Math.max(0, need - c);
+      if (cur && cur.short === sh) cur.to = Math.min(t + 5, sp.b);
+      else { if (cur) out.push(cur); cur = sh > 0 ? { from: t, to: Math.min(t + 5, sp.b), short: sh, need } : null; }
+    }
+    if (cur) out.push(cur);
+  }
+  return out;
+}
+const shortText = s => `${fmtT(s.from)}–${fmtT(s.to)} ${s.short}人不足`;
 
 /* ---------- render ---------- */
 function render() {
@@ -346,9 +386,11 @@ function monthGrid() {
     const list = shiftsOn(ds);
     const chips = list.slice(0, 3).map(s => `<span class="chip" style="${colorVar(staffById(s.staffId))}">${esc(nameOf(s.staffId))} <i>${shortT(s.start)}-${shortT(s.end)}</i></span>`).join("")
       + (list.length > 3 ? `<span class="more">ほか${list.length - 3}人</span>` : "");
+    const sg = out ? [] : shortages(ds);
+    const shortBadge = sg.length ? `<span class="short" title="${esc(sg.map(shortText).join(" / "))}">${sg[0].short}人不足<span class="det"> ${shortT(clock(sg[0].from))}-${sg[0].to >= 1440 ? "翌" : ""}${shortT(clock(sg[0].to))}${sg.length > 1 ? ` ほか${sg.length - 1}` : ""}</span></span>` : "";
     let rq = "";
     if (!out) { const r = reqsOnDay(ds); const c = k => r.filter(x => x.k === k).length; const parts = ["ok", "part", "ng"].filter(k => c(k)).map(k => `<span class="${k}">${MARK[k]}${c(k)}</span>`).join(""); if (parts) rq = `<span class="rq" title="希望シフト">${parts}</span>`; }
-    h += `<button class="cell d${d.getDay()} ${out ? "out" : ""} ${ds === S.sel ? "sel" : ""} ${ds === todayS ? "today" : ""}" id="cell-${ds}" data-act="pick" data-d="${ds}" aria-label="${d.getMonth() + 1}月${d.getDate()}日 シフト${list.length}件"><span class="dnum">${d.getDate()}</span><span class="chips">${chips}</span>${rq}</button>`;
+    h += `<button class="cell d${d.getDay()} ${out ? "out" : ""} ${ds === S.sel ? "sel" : ""} ${ds === todayS ? "today" : ""} ${sg.length ? "has-short" : ""}" id="cell-${ds}" data-act="pick" data-d="${ds}" aria-label="${d.getMonth() + 1}月${d.getDate()}日 シフト${list.length}件${sg.length ? "、" + sg.map(shortText).join("、") : ""}"><span class="dnum">${d.getDate()}</span>${shortBadge}<span class="chips">${chips}</span>${rq}</button>`;
   }
   return h + `</div>`;
 }
@@ -369,7 +411,10 @@ function weekTable() {
     }
     h += `</tr>`;
   }
-  h += `</tbody><tfoot><tr><td>人数 / 実働</td>` + days.map(ds => { const l = shiftsOn(ds); const w = l.reduce((a, s) => a + calc(s).work, 0); return `<td class="num">${l.length}人 / ${hrs(w)}</td>`; }).join("") + `</tr></tfoot></table></div>`;
+  h += `</tbody><tfoot><tr><td>人数 / 実働</td>` + days.map(ds => { const l = shiftsOn(ds); const w = l.reduce((a, s) => a + calc(s).work, 0); return `<td class="num">${l.length}人 / ${hrs(w)}</td>`; }).join("") + `</tr>`;
+  const weekShort = days.map(shortages);
+  if (weekShort.some(x => x.length)) h += `<tr class="shortrow"><td>人が足りない時間</td>` + weekShort.map(sg => `<td>${sg.map(s => `<div class="mono">${fmtT(s.from)}–${fmtT(s.to)}<br>${s.short}人不足</div>`).join("")}</td>`).join("") + `</tr>`;
+  h += `</tfoot></table></div>`;
   return h;
 }
 
@@ -379,9 +424,19 @@ function renderDay() {
   // タイムライン
   let ticks = ""; const step = range > 14 * 60 ? 180 : 120;
   for (let t = Math.ceil(o / step) * step; t < c; t += step) ticks += `<div class="tick" style="left:${(t - o) / range * 100}%"><span>${t / 60 % 24}</span></div>`;
-  h += `<div class="timeline" aria-label="時間帯ごとの配置"><div class="ticks">${ticks}</div>`;
+  const sg = shortages(S.sel), slots = slotsFor(S.sel);
+  const zones = sg.map(s => { const L = Math.max(0, (s.from - o) / range * 100), R = Math.min(100, (s.to - o) / range * 100); return R > L ? `<div class="shortzone" style="left:${L}%;width:${R - L}%" title="${esc(shortText(s))}"></div>` : ""; }).join("");
+  h += `<div class="timeline" aria-label="時間帯ごとの配置"><div class="ticks">${zones}${ticks}</div>`;
   h += list.length ? list.map(s => { const sp = span(s); if (!sp) return ""; const L = Math.max(0, (sp.a - o) / range * 100), R = Math.min(100, (sp.b - o) / range * 100); const st = staffById(s.staffId); return `<div class="bar" style="${colorVar(st)}"><div style="left:${L}%;width:${Math.max(R - L, 1)}%" title="${esc(nameOf(s.staffId))} ${s.start}–${s.end}">${esc(nameOf(s.staffId))}</div></div>`; }).join("") : `<div class="empty-tl">この日はまだシフトがありません。</div>`;
   h += `</div>`;
+  // 必要人数との比較
+  h += `<div class="section-title">必要人数</div>`;
+  if (!slots.length) h += `<p class="hint">${S.admin ? "「スタッフ・設定」タブで曜日ごとの必要人数を入れると、人が足りない時間をここに表示します。" : "この曜日の必要人数は設定されていません。"}</p>`;
+  else {
+    h += `<div class="reqgrp">` + slots.slice().sort((a, b) => span(a).a - span(b).a).map(sl => `<div class="reqline"><span class="mono">${sl.start}–${sl.end}</span><span>${Math.round(Number(sl.need))}人必要</span></div>`).join("");
+    h += sg.length ? sg.map(s => `<div class="reqline need-ng">${fmtT(s.from)}–${fmtT(s.to)} が ${s.short}人不足（必要 ${s.need}人）</div>`).join("") : `<div class="reqline need-ok">すべての時間帯で足りています</div>`;
+    h += `</div>`;
+  }
   // シフト一覧
   if (list.length) {
     h += `<div class="section-title">シフト</div><ul class="slist">` + list.map(s => {
@@ -551,7 +606,8 @@ function drawGrid(pages, o) {
   const first = monthFirst(), y0 = first.getFullYear(), m0 = first.getMonth(), dim = new Date(y0, m0 + 1, 0).getDate();
   const nameW = 250, rightW = o.rightHead ? 150 : 0, colW = (W - 2 * M - nameW - rightW) / dim, headH = 84;
   // 人数が少ないときは行を高くして読みやすくする（最大 130px）
-  const roomForRows = H - 2 * M - 130 - headH - (o.notes && o.notes.length ? 120 + o.notes.length * 42 : 0);
+  const blocks = (o.blocks || []).filter(b => b.lines.length);
+  const roomForRows = H - 2 * M - 130 - headH - blocks.reduce((a, b) => a + 110 + b.lines.length * 42, 0);
   const rowH = Math.max(o.rowH || 76, Math.min(130, Math.floor(roomForRows / (o.rows.length + 1))));
   const isWkend = d => { const w = new Date(y0, m0, d).getDay(); return w === 0 || w === 6; };
   const now = new Date(), stamp = `${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()} ${pad(now.getHours())}:${pad(now.getMinutes())} 出力`;
@@ -603,10 +659,10 @@ function drawGrid(pages, o) {
   newPage(); header();
   for (const row of o.rows) { if (y + rowH > H - M) { newPage(); header(); } drawRow(row, "#FFFFFF"); }
   if (o.footer) { if (y + rowH > H - M) { newPage(); header(); } drawRow(o.footer, C.head); }
-  if (o.notes && o.notes.length) {
+  for (const b of blocks) {
     y += 50; if (y + 90 > H - M) newPage();
-    g.textAlign = "left"; g.fillStyle = C.ink; g.font = `700 30px ${F}`; g.fillText(o.notesTitle, M, y); y += 52;
-    for (const n of o.notes) {
+    g.textAlign = "left"; g.fillStyle = b.color || C.ink; g.font = `700 30px ${F}`; g.fillText(b.title, M, y); y += 52;
+    for (const n of b.lines) {
       g.font = `400 26px ${F}`;
       for (const ln of wrapText(g, n, W - 2 * M)) {
         if (y + 40 > H - M) newPage();
@@ -638,8 +694,10 @@ function drawShiftPages(pages) {
       };
     }),
     footer: { label: "出勤人数", labelSize: 24, cell: d => [{ text: String(cnt(d)), mono: true, size: 26, color: cnt(d) ? C.ink : C.muted }], right: hrs(total) },
-    notesTitle: "シフトのメモ",
-    notes: list.filter(s => s.note).map(s => `${md(s.date)} ${nameOf(s.staffId)} ${s.start}–${s.end}：${s.note}`),
+    blocks: [
+      { title: "人が足りない時間", color: C.ng, lines: [...Array(new Date(Number(k.slice(0, 4)), Number(k.slice(5, 7)), 0).getDate())].map((_, i) => `${k}-${pad(i + 1)}`).map(ds => { const sg = shortages(ds); return sg.length ? `${md(ds)}　${sg.map(shortText).join("、")}` : ""; }).filter(Boolean) },
+      { title: "シフトのメモ", lines: list.filter(s => s.note).map(s => `${md(s.date)} ${nameOf(s.staffId)} ${s.start}–${s.end}：${s.note}`) },
+    ],
   });
 }
 // 希望シフト表
@@ -659,8 +717,7 @@ function drawReqPages(pages) {
       },
     })),
     footer: { label: "入れる人数", labelSize: 24, cell: d => [{ text: String(can(d)), mono: true, size: 26, color: can(d) ? C.ink : C.muted }] },
-    notesTitle: "スタッフからのメモ",
-    notes: rows.filter(x => x.r && x.r.note).map(x => `${x.st.name}：${x.r.note}`),
+    blocks: [{ title: "スタッフからのメモ", lines: rows.filter(x => x.r && x.r.note).map(x => `${x.st.name}：${x.r.note}`) }],
   });
 }
 function pdfErrText(e) {
@@ -744,10 +801,30 @@ function renderStaff() {
         <label class="f">タイムラインの終了（時）<input type="number" id="set-close" data-bind="setf.close" value="${esc(sf.close)}" min="1" max="30"></label>
         <p class="hint full">終了を 24 より大きくすると、翌朝までの夜勤も表示できます（例: 29 = 翌 5 時）。</p>
         <div class="row full"><button class="btn primary" id="set-submit" type="submit">設定を保存</button></div>
-      </form></section></div>`;
+      </form></section>${needPanel()}</div>`;
   } else h += `<section class="panel"><h3>スタッフの登録について</h3><p class="muted">スタッフの追加・時給・お店の設定は管理者だけが変更できます。希望シフトは「希望シフト」タブから出せます。</p></section>`;
   return h + `</div>`;
 }
+
+function needPanel() {
+  const src = S.need || S.staffing, dow = S.needDow, slots = ((src.byDow || {})[dow]) || [];
+  let h = `<section class="panel"><div class="toolbar"><h3>必要人数（営業時間）</h3>${S.need ? `<span class="hint">未保存の変更があります</span>` : ""}</div>
+    <p class="hint" style="margin:0 0 10px">曜日ごとに、時間帯とその時間に必要な人数を入れます。組んだシフトで人が足りない時間は、カレンダーに赤く表示されます。終了が開始より早いと、翌日までの時間帯として扱います。</p>
+    <div class="seg" role="group" aria-label="曜日" style="margin-bottom:12px">${NEED_DOW.map(d => { const n = (((src.byDow || {})[d]) || []).length; return `<button type="button" id="nd-${d}" data-act="needDow" data-v="${d}" aria-pressed="${dow === d}">${WD[d]}${n ? `<span class="num" style="font-size:11px"> ${n}</span>` : ""}</button>`; }).join("")}</div>`;
+  h += slots.length ? `<div style="display:flex;flex-direction:column;gap:10px">` + slots.map((s, i) => `<div class="needrow">
+      <label class="f">開始<input type="time" id="nd-s-${dow}-${i}" data-bind="need.byDow.${dow}.${i}.start" value="${esc(s.start)}" step="300"></label>
+      <label class="f">終了<input type="time" id="nd-e-${dow}-${i}" data-bind="need.byDow.${dow}.${i}.end" value="${esc(s.end)}" step="300"></label>
+      <label class="f">必要人数<input type="number" id="nd-n-${dow}-${i}" data-bind="need.byDow.${dow}.${i}.need" value="${esc(s.need)}" min="1" max="99" inputmode="numeric"></label>
+      <button type="button" class="btn small" id="nd-del-${dow}-${i}" data-act="needDel" data-i="${i}" aria-label="この時間帯を削除">削除</button></div>`).join("") + `</div>`
+    : `<p class="muted">${WD[dow]}曜日の時間帯はまだありません。</p>`;
+  h += `<div class="row" style="margin-top:12px"><button type="button" class="btn small" id="nd-add" data-act="needAdd">＋ 時間帯を追加</button>
+    <button type="button" class="btn small" id="nd-copy-wk" data-act="needCopy" data-v="weekday">この設定を平日（月〜金）にコピー</button>
+    <button type="button" class="btn small" id="nd-copy-all" data-act="needCopy" data-v="all">全曜日にコピー</button></div>
+    <div class="row" style="margin-top:12px"><button type="button" class="btn primary" id="nd-save" data-act="needSave" ${S.need ? "" : "disabled"}>必要人数を保存</button>${S.need ? `<button type="button" class="btn" id="nd-cancel" data-act="needCancel">変更を取り消す</button>` : ""}</div></section>`;
+  return h;
+}
+const cloneStaffing = () => JSON.parse(JSON.stringify({ byDow: (S.staffing && S.staffing.byDow) || {} }));
+function needDraft() { if (!S.need) S.need = cloneStaffing(); for (const d of NEED_DOW) if (!S.need.byDow[d]) S.need.byDow[d] = []; return S.need; }
 
 /* ---------- actions ---------- */
 function toast(text, err) { S.toast = { text, err }; render(); clearTimeout(toast.t); toast.t = setTimeout(() => { S.toast = null; render(); }, err ? 6000 : 2600); }
@@ -784,6 +861,36 @@ const A = {
   fillFromReq(t) { const r = reqsOnDay(S.sel).find(x => x.staffId === t.dataset.id); if (!r) return; const start = r.k === "part" && r.start ? r.start : S.form.start, end = r.k === "part" && r.end ? r.end : S.form.end; S.form = { ...blankForm(), staffId: r.staffId, start, end, breakMin: suggestBreak(start, end) }; queueMicrotask(() => document.getElementById("f-submit")?.focus()); },
   reqCycle(t) { const r = S.req, k = t.dataset.k, cur = (r.days[k] && r.days[k].k) || "", next = CYCLE[cur]; if (next) r.days[k] = { ...(r.days[k] || {}), k: next }; else delete r.days[k]; r.dirty = true; },
   reqReset() { loadReqDraft(); },
+  needDow(t) { S.needDow = Number(t.dataset.v); },
+  needAdd() {
+    const n = needDraft(), list = n.byDow[S.needDow], open = Number(S.settings.open) || 0, close = Number(S.settings.close) || 24;
+    const last = list[list.length - 1];
+    list.push(last ? { start: last.end, end: clock(Math.min(close, 24) * 60), need: last.need } : { start: `${pad(open)}:00`, end: clock(Math.min(close, 24) * 60), need: 2 });
+  },
+  needDel(t) { needDraft().byDow[S.needDow].splice(Number(t.dataset.i), 1); },
+  needCopy(t) {
+    const n = needDraft(), src = n.byDow[S.needDow] || [], targets = t.dataset.v === "all" ? NEED_DOW : [1, 2, 3, 4, 5];
+    for (const d of targets) if (d !== S.needDow) n.byDow[d] = JSON.parse(JSON.stringify(src));
+    toast(`${WD[S.needDow]}曜日の設定を${t.dataset.v === "all" ? "全曜日" : "平日"}にコピーしました（まだ保存していません）`);
+  },
+  needCancel() { S.need = null; },
+  async needSave() {
+    const n = S.need; if (!n) return;
+    const byDow = {};
+    for (const d of NEED_DOW) {
+      const list = [];
+      for (const s of n.byDow[d] || []) {
+        const need = Math.round(Number(s.need));
+        if (!span(s)) { toast(`${WD[d]}曜日に、開始か終了の時刻が入っていない時間帯があります。`, true); S.needDow = d; return; }
+        if (!(need >= 1)) { toast(`${WD[d]}曜日の必要人数は 1 人以上にしてください。`, true); S.needDow = d; return; }
+        list.push({ start: s.start, end: s.end, need });
+      }
+      list.sort((a, b) => toMin(a.start) - toMin(b.start));
+      byDow[d] = list;
+    }
+    const ok = await write(() => S.db.doc("settings/staffing").set({ byDow, updatedAt: Date.now() }), "必要人数を保存しました");
+    if (ok) S.need = null;
+  },
   pdf() { savePdf(); return true; },
   async reqSubmit() {
     const r = S.req; if (!r.staffId) return;
@@ -814,6 +921,7 @@ function setBind(path, value) {
 document.addEventListener("input", e => {
   const t = e.target, b = t.dataset && t.dataset.bind; if (!b || t.tagName === "SELECT" || t.type === "checkbox") return;
   if (b === "setf.storeName" || b.startsWith("setf.")) { if (!S.setf) S.setf = { ...S.settings }; }
+  if (b.startsWith("need.")) needDraft();
   setBind(b, t.value);
   if (b.startsWith("req.")) S.req.dirty = true;
   if (b === "form.breakMin") S.form.breakTouched = true;
@@ -821,12 +929,13 @@ document.addEventListener("input", e => {
 document.addEventListener("change", e => {
   const t = e.target, b = t.dataset && t.dataset.bind; if (!b) return;
   if (b.startsWith("setf.") && !S.setf) S.setf = { ...S.settings };
+  if (b.startsWith("need.")) needDraft();
   setBind(b, t.type === "checkbox" ? t.checked : t.value);
   if ((b === "form.start" || b === "form.end") && !S.form.breakTouched) S.form.breakMin = suggestBreak(S.form.start, S.form.end);
   if (b === "req.staffId") { pref.set("me", S.req.staffId); loadReqDraft(); }
   if (b.startsWith("req.days")) S.req.dirty = true;
   if (b === "gcal.who") { S.gcal.confirm = null; S.gcal.msg = null; }
-  if (t.tagName === "SELECT" || t.type === "checkbox" || t.type === "time" || b === "form.breakMin") render();
+  if (t.tagName === "SELECT" || t.type === "checkbox" || t.type === "time" || b === "form.breakMin" || b.startsWith("need.")) render();
 });
 
 document.addEventListener("submit", async e => {
@@ -890,6 +999,7 @@ render();
     render();
   }, onDbErr);
   if (S.admin) db.collection("private").onSnapshot(snap => { const p = {}; for (const d of snap.docs) p[d.id] = d.data(); S.priv = p; render(); }, onDbErr);
+  db.doc("settings/staffing").onSnapshot(snap => { S.staffing = snap.exists && snap.data().byDow ? { byDow: snap.data().byDow } : { byDow: {} }; render(); }, onDbErr);
   db.doc("settings/main").onSnapshot(snap => { if (snap.exists) S.settings = { ...S.settings, ...snap.data() }; render(); }, onDbErr);
   if (S.uid) db.doc(`data/users/${S.uid}/gcal`).get().then(s => { if (s.exists && s.data().ids) { S.gsync = { ...S.gsync, ...s.data().ids }; render(); } }).catch(() => {});
   subscribeMonth();
