@@ -504,7 +504,7 @@ function renderReq() {
   if (parts.length) h += `<div class="section-title">△ の日の時間</div><div class="partlist">` + parts.map(k => { const v = r.days[k]; return `<div class="partrow"><span class="mono" style="width:5.5em">${first.getMonth() + 1}/${Number(k)}(${WD[new Date(first.getFullYear(), first.getMonth(), Number(k)).getDay()]})</span><input type="time" id="rp-s-${k}" data-bind="req.days.${k}.start" value="${v.start || ""}" step="300" aria-label="${Number(k)}日の開始"> 〜 <input type="time" id="rp-e-${k}" data-bind="req.days.${k}.end" value="${v.end || ""}" step="300" aria-label="${Number(k)}日の終了"></div>`; }).join("") + `</div>`;
   h += `<label class="f" style="margin-top:14px">店長へのメモ<textarea id="req-note" data-bind="req.note" placeholder="例: 15日は午後から授業があります">${esc(r.note)}</textarea></label>`;
   const ro = S.canWrite === false;
-  h += `<div class="row" style="margin-top:12px"><button class="btn primary" id="req-submit" data-act="reqSubmit" ${ro ? "disabled" : ""}>${own ? "希望を更新する" : "希望を提出する"}</button>${r.dirty ? `<button class="btn" id="req-reset" data-act="reqReset">変更を取り消す</button>` : ""}${ro ? `<span class="hint">閲覧のみの権限のため提出できません。管理者に「参加者（Contributor）」以上の権限をもらってください。</span>` : ""}</div>`;
+  h += `<div class="row" style="margin-top:12px"><button class="btn primary" id="req-submit" data-act="reqSubmit" ${ro ? "disabled" : ""}>${own ? "希望を更新する" : "希望を提出する"}</button>${r.dirty ? `<button class="btn" id="req-reset" data-act="reqReset">変更を取り消す</button>` : ""}${ro ? `<span class="hint">閲覧のみの権限のため提出できません。店長に、あなたのメールアドレスでこのページに招待してもらってください。</span>` : ""}</div>`;
   return h + `</section>` + matrix();
 }
 
