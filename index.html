@@ -252,6 +252,9 @@ function calc(s) {
   const night = Math.min(work, ov(sp.a, sp.b, 0, 300) + ov(sp.a, sp.b, 1320, 1740) + ov(sp.a, sp.b, 2760, 3180));
   return { work, night, over: Math.max(0, work - 480) };
 }
+// 時給とメールは管理者だけが読める private/<staffId> に置く（古いデータは staff 側にある場合も読む）
+const wageOf = st => { const p = S.priv[st.id]; return p && p.wage != null ? p.wage : (st.wage ?? null); };
+const emailOf = st => { const p = S.priv[st.id]; return (p && p.email) || st.email || null; };
 const payOf = (c, wage) => { const w = Number(wage) || 0; return (c.work * w + c.night * w * 0.25 + c.over * w * 0.25) / 60; };
 // 労働基準法の休憩: 6時間超で45分、8時間超で60分
 function suggestBreak(start, end) { const sp = span({ start, end }); if (!sp) return 0; const t = sp.b - sp.a; return t > 480 ? 60 : t > 360 ? 45 : 0; }
@@ -266,7 +269,7 @@ const S = {
   tab: pref.get("tab", "cal"), calMode: pref.get("calMode", "month"), sel: ymd(now),
   form: blankForm(), confirmDel: null,
   req: { staffId: pref.get("me", ""), days: {}, note: "", dirty: false },
-  sf: { id: null, name: "", wage: "", color: 0, email: "" }, setf: null,
+  sf: { id: null, name: "", wage: "", color: 0, email: "" }, setf: null, priv: {},
   gcal: { who: "all", invite: false, confirm: null, running: false, msg: null },
   toast: null,
 };
@@ -425,7 +428,7 @@ function gcalBox(scope, all) {
   if (S.dbState === "ready" && !S.mcp) return h + `<p class="hint">この画面では Google カレンダー連携を使えません。claude.ai で開くと使えます。</p></div>`;
   h += `<p class="hint">${scope === "day" ? "この日" : "この月"}のシフトを、ページを開いているあなたの Google カレンダーに予定として追加します。</p>
     <label class="f">だれのシフト<select id="gcal-who-${scope}" data-bind="gcal.who"><option value="all">全員</option>${S.staff.map(st => `<option value="${st.id}" ${g.who === st.id ? "selected" : ""}>${esc(st.name)}</option>`).join("")}</select></label>`;
-  if (S.admin && S.staff.some(st => st.email)) h += `<label class="row hint"><input type="checkbox" id="gcal-invite-${scope}" data-bind="gcal.invite" ${g.invite ? "checked" : ""}> メールアドレスを登録したスタッフに招待メールを送る</label>`;
+  if (S.admin && S.staff.some(st => emailOf(st))) h += `<label class="row hint"><input type="checkbox" id="gcal-invite-${scope}" data-bind="gcal.invite" ${g.invite ? "checked" : ""}> メールアドレスを登録したスタッフに招待メールを送る</label>`;
   h += `<p class="hint">対象 ${list.length} 件${list.length - pending.length ? `（あなたが登録済みの ${list.length - pending.length} 件は除きます）` : ""}</p>`;
   if (g.confirm === scope && !g.running) h += `<div class="row"><span>${pending.length} 件を登録します。</span><button class="btn primary small" id="gcal-go-${scope}" data-act="gcalGo" data-scope="${scope}">登録する</button><button class="btn small" id="gcal-no-${scope}" data-act="gcalCancel">やめる</button></div>`;
   else h += `<div><button class="btn" id="gcal-ask-${scope}" data-act="gcalAsk" data-scope="${scope}" ${!pending.length || g.running || !S.mcp ? "disabled" : ""}>${g.running ? "登録中…" : "カレンダーに登録…"}</button></div>`;
@@ -462,7 +465,7 @@ async function gcalRun(scope) {
       startTime: `${s.date}T${s.start}:00+09:00`, endTime: `${endDay}T${clock(sp.b % 1440)}:00+09:00`, timeZone: "Asia/Tokyo",
       description: `休憩 ${Number(s.breakMin) || 0}分${s.note ? "\n" + s.note : ""}\nシフトボードから登録`,
     };
-    if (S.gcal.invite && st && st.email) input.attendees = [{ email: st.email, displayName: st.name }];
+    if (S.gcal.invite && st && emailOf(st)) input.attendees = [{ email: emailOf(st), displayName: st.name }];
     try {
       await S.mcp.callTool(GCAL, "create_event", input);
       done++; synced[s.id] = Date.now(); S.gsync = { ...synced };
@@ -692,19 +695,19 @@ function renderSum() {
   const list = shiftsInMonth(), rows = [];
   for (const st of S.staff) {
     const mine = list.filter(s => s.staffId === st.id);
-    const t = mine.reduce((a, s) => { const c = calc(s); a.work += c.work; a.night += c.night; a.over += c.over; a.pay += payOf(c, st.wage); return a; }, { work: 0, night: 0, over: 0, pay: 0 });
+    const t = mine.reduce((a, s) => { const c = calc(s); a.work += c.work; a.night += c.night; a.over += c.over; a.pay += payOf(c, wageOf(st)); return a; }, { work: 0, night: 0, over: 0, pay: 0 });
     rows.push({ st, days: new Set(mine.map(s => s.date)).size, ...t });
   }
   const tot = rows.reduce((a, r) => ({ work: a.work + r.work, night: a.night + r.night, over: a.over + r.over, pay: a.pay + r.pay, days: a.days + r.days }), { work: 0, night: 0, over: 0, pay: 0, days: 0 });
-  const max = Math.max(1, ...rows.map(r => r.work));
+  const max = Math.max(1, ...rows.map(r => r.work)), pay = S.admin;
   let h = `<section class="panel"><div class="toolbar">${monthNav(monthLabel() + "の集計")}</div>
-    <div class="kpis"><div class="kpi"><div class="l">シフト件数</div><div class="v num">${list.length}</div></div><div class="kpi"><div class="l">総実働時間</div><div class="v num">${hrs(tot.work)}</div></div><div class="kpi"><div class="l">人件費の目安</div><div class="v num">${yen(tot.pay)}</div></div></div>`;
-  if (!rows.length) h += `<p class="muted">スタッフを登録してシフトを入れると、ここに一人ずつの勤務時間と給料の目安が出ます。</p>`;
+    <div class="kpis"><div class="kpi"><div class="l">シフト件数</div><div class="v num">${list.length}</div></div><div class="kpi"><div class="l">総実働時間</div><div class="v num">${hrs(tot.work)}</div></div>${pay ? `<div class="kpi"><div class="l">人件費の目安</div><div class="v num">${yen(tot.pay)}</div></div>` : ""}</div>`;
+  if (!rows.length) h += `<p class="muted">スタッフを登録してシフトを入れると、ここに一人ずつの勤務時間${pay ? "と給料の目安" : ""}が出ます。</p>`;
   else {
-    h += `<div class="scroll"><table class="sum"><thead><tr><th class="name">スタッフ</th><th>出勤日数</th><th>実働</th><th>うち深夜</th><th>8時間超</th><th>時給</th><th>給料の目安</th></tr></thead><tbody>`;
-    h += rows.map(r => `<tr><td class="name"><span class="dot" style="${colorVar(r.st)}"></span>${esc(r.st.name)}<div class="hbar" style="${colorVar(r.st)};width:${r.work / max * 100}%"></div></td><td>${r.days}日</td><td>${hrs(r.work)}</td><td>${hrs(r.night)}</td><td>${hrs(r.over)}</td><td>${r.st.wage ? yen(r.st.wage) : `<span class="muted">未設定</span>`}</td><td>${yen(r.pay)}</td></tr>`).join("");
-    h += `</tbody><tfoot><tr><td class="name">合計</td><td>${tot.days}日</td><td>${hrs(tot.work)}</td><td>${hrs(tot.night)}</td><td>${hrs(tot.over)}</td><td></td><td>${yen(tot.pay)}</td></tr></tfoot></table></div>`;
-    h += `<p class="hint">給料の目安 = 実働 × 時給 ＋ 深夜（22時〜翌5時）の割増 25% ＋ 1 日 8 時間を超えた分の割増 25%。交通費・週 40 時間超の残業・税金は含みません。休憩は深夜以外の時間に取った前提で計算しています。</p>`;
+    h += `<div class="scroll"><table class="sum"><thead><tr><th class="name">スタッフ</th><th>出勤日数</th><th>実働</th><th>うち深夜</th><th>8時間超</th>${pay ? "<th>時給</th><th>給料の目安</th>" : ""}</tr></thead><tbody>`;
+    h += rows.map(r => `<tr><td class="name"><span class="dot" style="${colorVar(r.st)}"></span>${esc(r.st.name)}<div class="hbar" style="${colorVar(r.st)};width:${r.work / max * 100}%"></div></td><td>${r.days}日</td><td>${hrs(r.work)}</td><td>${hrs(r.night)}</td><td>${hrs(r.over)}</td>${pay ? `<td>${wageOf(r.st) ? yen(wageOf(r.st)) : `<span class="muted">未設定</span>`}</td><td>${yen(r.pay)}</td>` : ""}</tr>`).join("");
+    h += `</tbody><tfoot><tr><td class="name">合計</td><td>${tot.days}日</td><td>${hrs(tot.work)}</td><td>${hrs(tot.night)}</td><td>${hrs(tot.over)}</td>${pay ? `<td></td><td>${yen(tot.pay)}</td>` : ""}</tr></tfoot></table></div>`;
+    if (pay) h += `<p class="hint">時給と給料は管理者のあなたにだけ表示されます。給料の目安 = 実働 × 時給 ＋ 深夜（22時〜翌5時）の割増 25% ＋ 1 日 8 時間を超えた分の割増 25%。交通費・週 40 時間超の残業・税金は含みません。休憩は深夜以外の時間に取った前提で計算しています。</p>`;
   }
   return h + `</section><section class="panel">${gcalBox("month", list)}</section>`;
 }
@@ -717,7 +720,7 @@ function renderStaff() {
     if (S.admin) ctl = S.confirmDel === "st:" + st.id
       ? `<span class="row"><button class="btn small danger" id="sdel-yes-${st.id}" data-act="delStaff" data-id="${st.id}">削除する</button><button class="btn small" id="sdel-no-${st.id}" data-act="cancelDel">やめる</button></span>`
       : `<span class="row"><button class="btn small" id="sedit-${st.id}" data-act="editStaff" data-id="${st.id}">編集</button><button class="btn small" id="sask-${st.id}" data-act="askDel" data-id="st:${st.id}">削除</button></span>`;
-    return `<li><span class="dot" style="${colorVar(st)}"></span><span class="who">${esc(st.name)}</span>${ctl}<span class="meta">時給 ${st.wage ? yen(st.wage) : "未設定"}${S.admin && st.email ? ` ・ ${esc(st.email)}` : ""}</span></li>`;
+    return `<li><span class="dot" style="${colorVar(st)}"></span><span class="who">${esc(st.name)}</span>${ctl}${S.admin ? `<span class="meta">時給 ${wageOf(st) ? yen(wageOf(st)) : "未設定"}${emailOf(st) ? ` ・ ${esc(emailOf(st))}` : ""}</span>` : ""}</li>`;
   }).join("") + `</ul>` : `<p class="muted">まだ誰も登録されていません。${S.admin ? "右のフォームから追加してください。" : ""}</p>`;
   h += `</section>`;
   if (S.admin) {
@@ -728,7 +731,7 @@ function renderStaff() {
         <label class="f">時給（円）<input type="number" id="s-wage" data-bind="sf.wage" value="${esc(f.wage)}" min="0" step="1" inputmode="numeric" placeholder="例: 1000"></label>
         <label class="f">メール（任意）<input type="email" id="s-email" data-bind="sf.email" value="${esc(f.email)}" placeholder="カレンダー招待に使います"></label>
         <div class="f full">色<div class="swatches" role="group" aria-label="色">${[...Array(8)].map((_, i) => `<button type="button" class="sw" id="sw-${i}" style="--c:var(--c${i})" aria-pressed="${f.color === i}" aria-label="色 ${i + 1}" data-act="pickColor" data-v="${i}"></button>`).join("")}</div></div>
-        <p class="hint full">メールアドレスはこのページを開ける人全員に読まれる場所に保存されます。不要なら空欄のままにしてください。</p>
+        <p class="hint full">時給とメールアドレスは管理者のあなただけが見られる場所に保存されます。スタッフの画面には出ません。</p>
         <div class="row full"><button class="btn primary" id="s-submit" type="submit">${f.id ? "変更を保存" : "追加する"}</button>${f.id ? `<button class="btn" type="button" id="s-cancel" data-act="cancelStaff">やめる</button>` : ""}</div>
       </form></section>`;
     const sf = S.setf || { ...S.settings };
@@ -789,9 +792,9 @@ const A = {
     if (ok) r.dirty = false;
   },
   pickColor(t) { S.sf.color = Number(t.dataset.v); },
-  editStaff(t) { const st = staffById(t.dataset.id); if (st) S.sf = { id: st.id, name: st.name, wage: st.wage ?? "", color: st.color || 0, email: st.email || "" }; },
+  editStaff(t) { const st = staffById(t.dataset.id); if (st) S.sf = { id: st.id, name: st.name, wage: wageOf(st) ?? "", color: st.color || 0, email: emailOf(st) || "" }; },
   cancelStaff() { S.sf = { id: null, name: "", wage: "", color: (S.staff.length) % 8, email: "" }; },
-  async delStaff(t) { S.confirmDel = null; await write(() => S.db.doc("staff/" + t.dataset.id).delete(), "スタッフを削除しました（過去のシフトは残ります）"); },
+  async delStaff(t) { S.confirmDel = null; const id = t.dataset.id; await write(async () => { await S.db.doc("staff/" + id).delete(); await S.db.doc("private/" + id).delete(); }, "スタッフを削除しました（過去のシフトは残ります）"); },
   gcalAsk(t) { S.gcal.confirm = t.dataset.scope; S.gcal.msg = null; },
   gcalCancel() { S.gcal.confirm = null; },
   gcalGo(t) { gcalRun(t.dataset.scope); return true; },
@@ -841,8 +844,13 @@ document.addEventListener("submit", async e => {
   } else if (kind === "staff") {
     const f = S.sf, name = f.name.trim();
     if (!name) return toast("名前を入れてください。", true);
-    const data = { name, wage: f.wage === "" ? null : Math.max(0, Math.round(Number(f.wage))), color: f.color, email: f.email.trim() || null, order: f.id ? (staffById(f.id)?.order ?? Date.now()) : Date.now() };
-    const ok = await write(() => f.id ? S.db.doc("staff/" + f.id).set(data) : S.db.collection("staff").add(data), f.id ? "スタッフを更新しました" : `${name}さんを追加しました`);
+    const data = { name, color: f.color, order: f.id ? (staffById(f.id)?.order ?? Date.now()) : Date.now() };
+    const priv = { wage: f.wage === "" ? null : Math.max(0, Math.round(Number(f.wage))), email: f.email.trim() || null };
+    const ok = await write(async () => {
+      const ref = f.id ? S.db.doc("staff/" + f.id) : S.db.collection("staff").doc();
+      await ref.set(data);
+      await S.db.doc("private/" + ref.id).set(priv);
+    }, f.id ? "スタッフを更新しました" : `${name}さんを追加しました`);
     if (ok) S.sf = { id: null, name: "", wage: "", color: (S.staff.length + (f.id ? 0 : 1)) % 8, email: "" };
   } else if (kind === "settings") {
     const f = S.setf || S.settings;
@@ -870,7 +878,8 @@ render();
   const use = n => (window.claude && window.claude.use ? window.claude.use(n).catch(() => null) : Promise.resolve(null));
   const [db, user, mcp, downloads] = await Promise.all([use("db"), use("user"), use("mcp"), use("downloads")]);
   S.mcp = mcp; S.user = user; S.downloads = downloads;
-  if (user) { const [adm, cw, id] = await Promise.all([user.canEdit(), user.can("data.write"), user.id()]); S.admin = adm; S.canWrite = cw; S.uid = id; }
+  // 管理者はこのページの作成者だけ（共有メニューで編集者にした人も管理者にはしない）
+  if (user) { const [adm, cw, id] = await Promise.all([user.isOwner(), user.can("data.write"), user.id()]); S.admin = adm; S.canWrite = cw; S.uid = id; }
   if (!db) { S.dbState = "none"; render(); return; }
   S.db = db; S.dbState = "ready";
   try { S.gsync = JSON.parse(pref.get("gsync", "{}")) || {}; } catch { S.gsync = {}; }
@@ -880,6 +889,7 @@ render();
     if (!S.sf.id && !S.sf.name) S.sf.color = S.staff.length % 8;
     render();
   }, onDbErr);
+  if (S.admin) db.collection("private").onSnapshot(snap => { const p = {}; for (const d of snap.docs) p[d.id] = d.data(); S.priv = p; render(); }, onDbErr);
   db.doc("settings/main").onSnapshot(snap => { if (snap.exists) S.settings = { ...S.settings, ...snap.data() }; render(); }, onDbErr);
   if (S.uid) db.doc(`data/users/${S.uid}/gcal`).get().then(s => { if (s.exists && s.data().ids) { S.gsync = { ...S.gsync, ...s.data().ids }; render(); } }).catch(() => {});
   subscribeMonth();
