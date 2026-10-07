@@ -591,7 +591,9 @@ function newToken() {
   const b = new Uint8Array(24); crypto.getRandomValues(b);
   return btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
-const inviteUrl = id => S.tokens[id] ? `${location.origin}${location.pathname}#join=${id}.${S.tokens[id]}` : "";
+// 招待リンクは、どこで作っても公開用のアドレスにする（localhost で作ってもスタッフが開けるように）
+const pageUrl = () => ((window.SHIFT_CONFIG && window.SHIFT_CONFIG.publicUrl) || `${location.origin}${location.pathname}`);
+const inviteUrl = id => S.tokens[id] ? `${pageUrl()}#join=${id}.${S.tokens[id]}` : "";
 function copyText(el) {
   if (!el) return;
   const done = () => toast("コピーしました");

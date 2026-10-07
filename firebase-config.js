@@ -9,6 +9,8 @@ window.SHIFT_CONFIG = {
     messagingSenderId: "1074474612512",
     appId: "1:1074474612512:web:8bf9bf5305ea8effa4c945",
   },
+  // 公開しているページのアドレス（招待リンクに使う）
+  publicUrl: "https://ponntatta.github.io/shift-board/",
   // 管理者（店長）の Google アカウント。firestore.rules の isAdmin() と同じアドレスにします。
   adminEmail: "masaru20040201@gmail.com",
 };
