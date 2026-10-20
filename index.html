@@ -124,6 +124,8 @@ a.btn { display: inline-block; text-decoration: none; color: var(--ink); }
 .cell.today .dnum { background: var(--today); color: #161E2E; }
 .chips { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .chip { display: block; font-size: 11.5px; line-height: 1.35; padding: 1px 5px; border-radius: 4px; border-left: 3px solid var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip.open { --c: var(--ng); border-left-style: dashed; background: transparent; outline: 1px dashed color-mix(in srgb, var(--ng) 45%, transparent); color: var(--ng); }
+.open-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px dashed var(--line); }
 .chip i { font-style: normal; font-family: var(--f-mono); color: var(--muted); font-size: 10.5px; }
 .more { font-size: 11px; color: var(--muted); padding-left: 4px; }
 .rq { margin-top: auto; display: flex; gap: 6px; font-size: 10.5px; font-family: var(--f-mono); }
@@ -365,7 +367,7 @@ const S = {
   form: blankForm(), confirmDel: null, emptyFuture: true, emptyOpen: true,
   req: { staffId: pref.get("me", ""), days: {}, note: "", dirty: false },
   sf: { id: null, name: "", wage: "", color: 0, email: "", desired: "" }, setf: null, priv: {},
-  staffing: { byDow: {} }, need: null, needDow: 1, dayMemos: {}, dmDraft: null,
+  staffing: { byDow: {} }, need: null, needDow: 1, dayMemos: {}, dmDraft: null, openSlots: {},
   auto: { skipPast: true, extend: false, plan: null, running: false, msg: null },
   gcal: { who: null },
   toast: null,
@@ -420,6 +422,24 @@ function shortages(ds, shifts) {
   return out;
 }
 const shortText = s => `${fmtT(s.from)}–${fmtT(s.to)} ${s.short}人不足`;
+// 募集中の枠（自動作成で埋まらなかった時間を保存したもの）。settings/openSlots.byDate["YYYY-MM-DD"] = [{ from, to, short }]
+// 表示するのは、今もまだ人が足りていない部分だけ（あとでシフトを入れると消える）
+function openOn(ds) {
+  const saved = S.openSlots[ds]; if (!Array.isArray(saved) || !saved.length) return [];
+  const sg = shortages(ds); if (!sg.length) return [];
+  // 必要人数の時間帯が重なっていても 1 本にまとめる: 5 分ごとに「足りない人数の最大」を見て、同じ人数が続く所を 1 枠にする
+  const lo = Math.min(...saved.map(o => o.from)), hi = Math.max(...saved.map(o => o.to)), out = [];
+  let cur = null;
+  for (let t = lo; t < hi; t += 5) {
+    const inSaved = saved.some(o => o.from <= t && t < o.to);
+    const n = inSaved ? Math.max(0, ...sg.filter(x => x.from <= t && t < x.to).map(x => x.short)) : 0;
+    if (cur && cur.short === n) cur.to = t + 5;
+    else { if (cur) out.push(cur); cur = n > 0 ? { from: t, to: t + 5, short: n } : null; }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+const openText = o => `${fmtT(o.from)}–${fmtT(o.to)}`;
 // お店の開始〜終了のうち、シフトが 1 人も入っていない区間を { from, to } で返す（分は当日 0:00 起点）
 function emptyTimes(ds) {
   const o = Math.round((Number(S.settings.open) || 0) * 60), c = Math.max(Math.round((Number(S.settings.close) || 0) * 60), o + 60);
@@ -529,10 +549,11 @@ function monthGrid() {
   for (let i = 0; i < weeks * 7; i++) {
     const d = addDays(gs, i), ds = ymd(d), out = d.getMonth() !== first.getMonth();
     const list = shiftsOn(ds);
-    const chips = list.slice(0, 3).map(s => `<span class="chip" style="${colorVar(staffById(s.staffId))}">${esc(nameOf(s.staffId))} <i>${shortT(s.start)}-${shortT(s.end)}</i></span>`).join("")
+    const op = out ? [] : openOn(ds);
+    const chips = (op.length ? `<span class="chip open" title="${esc(op.map(o => `${openText(o)} ${o.short}人`).join(" / "))}">募集 <i>${shortT(clock(op[0].from))}-${op[0].to >= 1440 ? "翌" : ""}${shortT(clock(op[0].to))} ${op[0].short}人${op.length > 1 ? ` ほか${op.length - 1}` : ""}</i></span>` : "") + list.slice(0, 3).map(s => `<span class="chip" style="${colorVar(staffById(s.staffId))}">${esc(nameOf(s.staffId))} <i>${shortT(s.start)}-${shortT(s.end)}</i></span>`).join("")
       + (list.length > 3 ? `<span class="more">ほか${list.length - 3}人</span>` : "");
     const sg = out ? [] : shortages(ds);
-    const shortBadge = sg.length ? `<span class="short" title="${esc(sg.map(shortText).join(" / "))}">${sg[0].short}人不足<span class="det"> ${shortT(clock(sg[0].from))}-${sg[0].to >= 1440 ? "翌" : ""}${shortT(clock(sg[0].to))}${sg.length > 1 ? ` ほか${sg.length - 1}` : ""}</span></span>` : "";
+    const shortBadge = sg.length && !op.length ? `<span class="short" title="${esc(sg.map(shortText).join(" / "))}">${sg[0].short}人不足<span class="det"> ${shortT(clock(sg[0].from))}-${sg[0].to >= 1440 ? "翌" : ""}${shortT(clock(sg[0].to))}${sg.length > 1 ? ` ほか${sg.length - 1}` : ""}</span></span>` : "";
     let rq = "";
     if (!out) { const r = reqsOnDay(ds); const c = k => r.filter(x => x.k === k).length; const parts = ["ok", "part", "ng"].filter(k => c(k)).map(k => `<span class="${k}">${MARK[k]}${c(k)}</span>`).join(""); if (parts) rq = `<span class="rq" title="希望シフト">${parts}</span>`; }
     h += `<button class="cell d${d.getDay()} ${out ? "out" : ""} ${ds === S.sel ? "sel" : ""} ${ds === todayS ? "today" : ""} ${sg.length ? "has-short" : ""}" id="cell-${ds}" data-act="pick" data-d="${ds}" aria-label="${d.getMonth() + 1}月${d.getDate()}日 シフト${list.length}件${sg.length ? "、" + sg.map(shortText).join("、") : ""}"><span class="dnum">${d.getDate()}</span>${shortBadge}<span class="chips">${chips}</span>${rq}</button>`;
@@ -556,6 +577,7 @@ function weekTable() {
     }
     h += `</tr>`;
   }
+  if (days.some(ds => openOn(ds).length)) h += `<tr><th class="name need-ng">募集中</th>` + days.map(ds => `<td class="${ds === S.sel ? "sel" : ""}" data-act="pick" data-d="${ds}">${openOn(ds).map(o => `<div class="chip open" style="white-space:normal">${openText(o)} ${o.short}人</div>`).join("")}</td>`).join("") + `</tr>`;
   h += `</tbody><tfoot><tr><td>人数 / 実働</td>` + days.map(ds => { const l = shiftsOn(ds); const w = l.reduce((a, s) => a + calc(s).work, 0); return `<td class="num">${l.length}人 / ${hrs(w)}</td>`; }).join("") + `</tr>`;
   const weekShort = days.map(shortages);
   if (weekShort.some(x => x.length)) h += `<tr class="shortrow"><td>人が足りない時間</td>` + weekShort.map(sg => `<td>${sg.map(s => `<div class="mono">${fmtT(s.from)}–${fmtT(s.to)}<br>${s.short}人不足</div>`).join("")}</td>`).join("") + `</tr>`;
@@ -590,6 +612,10 @@ function renderDay() {
     h += sg.length ? sg.map(s => `<div class="reqline need-ng">${fmtT(s.from)}–${fmtT(s.to)} が ${s.short}人不足（必要 ${s.need}人）</div>`).join("") : `<div class="reqline need-ok">すべての時間帯で足りています</div>`;
     h += `</div>`;
   }
+  // 募集中の枠
+  const op = openOn(S.sel);
+  if (op.length) h += `<div class="section-title">募集中の枠</div>` + op.map((o, i) => `<div class="open-row"><span class="mono need-ng">${openText(o)}</span><span class="need-ng">あと${o.short}人</span>${S.admin ? `<button class="btn small" id="open-fill-${i}" data-act="openFill" data-a="${o.from}" data-b="${o.to}">人を決めて入れる</button>` : `<span class="hint">入れる人は店長に伝えてください</span>`}</div>`).join("")
+    + (S.admin ? `<div class="row" style="margin-top:6px"><button class="btn small" id="open-del" data-act="openDel">この日の募集中の枠を消す</button></div>` : "");
   // 1 人もいない時間
   const em = emptyTimes(S.sel);
   h += `<div class="section-title">1人もいない時間</div><div class="reqgrp">${em.length ? em.map(e => `<div class="reqline need-ng">${emptyText(e)} はだれもいません</div>`).join("") : `<div class="reqline need-ok">営業時間中いつもだれかが入っています</div>`}</div>`;
@@ -889,7 +915,8 @@ function drawSharePages(pages) {
   const base = 58, lineH = 27;
   const rowH = (st, wk) => Math.max(base, ...wk.map(dt => { const l = shiftsOf(st.id, dt); return l.length * lineH + (l.some(s => s.note) ? 20 : 0) + 18; }));
   const memoH = 50, headH = 64, labelH = 40, gap = 20;
-  const blockH = wk => labelH + headH + memoH + staff.reduce((a, st) => a + rowH(st, wk), 0) + gap;
+  const openH = wk => { const n = Math.max(0, ...wk.map(dt => openOn(ds(dt)).length)); return n ? Math.max(base, n * lineH + 18) : 0; };
+  const blockH = wk => labelH + headH + memoH + staff.reduce((a, st) => a + rowH(st, wk), 0) + openH(wk) + gap;
   const titleH = 70, footH = 90, avail = H - 2 * M - titleH - footH;
   // ページに入るだけの週を詰める
   const groups = []; let g = [], used = 0;
@@ -941,6 +968,17 @@ function drawSharePages(pages) {
           if (notes) { c.fillStyle = C.note; fitText(c, notes, x + colW / 2, ty - lineH * 0.25, colW - 12, 400, 16, F); }
         });
         y += rh;
+      }
+      // 募集中の枠（まだ人が決まっていない時間）
+      const oh = openH(wk);
+      if (oh) {
+        box(M, y, nameW, oh, "#FBE9E7"); c.fillStyle = C.sun; c.textAlign = "center"; fitText(c, "募集中", M + nameW / 2, y + oh / 2, nameW - 20, 700, 26, F);
+        wk.forEach((dt, i) => {
+          const x = M + nameW + i * colW, list = openOn(ds(dt)); box(x, y, colW, oh, "#FFFFFF");
+          let ty = y + oh / 2 - (list.length - 1) * lineH / 2; c.fillStyle = C.sun; c.textAlign = "center";
+          for (const o of list) { fitText(c, `${hm(clock(o.from))}〜${o.to > 1440 ? "翌" : ""}${hm(clock(o.to))} ${o.short}人`, x + colW / 2, ty, colW - 12, 600, 22, F); ty += lineH; }
+        });
+        y += oh;
       }
       y += gap;
     }
@@ -1271,11 +1309,13 @@ function autoPanel() {
   if (a.msg) h += `<div class="msg ${a.msg.kind}" role="status" style="margin-top:10px">${esc(a.msg.text)}</div>`;
   if (p) {
     if (!p.hasSlots) return h + `<p class="msg err" style="margin-top:10px">必要人数が設定されていないため、案を作れません。「スタッフ・設定」タブの「必要人数（営業時間）」を先に入れてください。</p></section>`;
-    const saveRow = p.added.length ? (a.confirm
-      ? `<div class="row" style="margin-top:12px"><span>${p.added.length} 件をシフトに保存します。</span><button class="btn primary" id="auto-go" data-act="autoApply" ${a.running ? "disabled" : ""}>保存する</button><button class="btn" id="auto-no" data-act="autoNo">やめる</button></div>`
-      : `<div class="row" style="margin-top:12px"><button class="btn primary" id="auto-ask" data-act="autoAsk" ${a.running ? "disabled" : ""}>この案をシフトに保存する…</button></div>`) : "";
+    const saveWhat = [p.added.length ? `${p.added.length} 件のシフト` : "", p.unfilled.length ? `${p.unfilled.length} 日分の募集中の枠（足りない時間）` : ""].filter(Boolean).join("と");
+    const saveRow = p.added.length || p.unfilled.length ? (a.confirm
+      ? `<div class="row" style="margin-top:12px"><span>${saveWhat}を保存します。</span><button class="btn primary" id="auto-go" data-act="autoApply" ${a.running ? "disabled" : ""}>保存する</button><button class="btn" id="auto-no" data-act="autoNo">やめる</button></div>`
+      : `<div class="row" style="margin-top:12px"><button class="btn primary" id="auto-ask" data-act="autoAsk" ${a.running ? "disabled" : ""}>${p.unfilled.length ? "足りない所は募集中の枠にして保存する…" : "この案をシフトに保存する…"}</button></div>`) : "";
     const rows = S.staff.map(st => ({ st, b: p.before[st.id] || 0, f: p.after[st.id] || 0, n: p.added.filter(x => x.staffId === st.id).length, sub: !!reqOf(st.id) }));
-    h += p.added.length ? saveRow : `<div class="msg" style="margin-top:12px">追加できるシフトはありませんでした。保存するものがないため、保存ボタンは出ません。下の「足りない時間」に、それぞれの人が入れられない理由を出しています。${a.extend ? "" : "上の「前後に延ばしてよい」にチェックを入れて作り直すと、増えることがあります。"}</div>`;
+    if (!p.added.length && p.unfilled.length) h += `<div class="msg" style="margin-top:12px">人を入れられるシフトはありませんでした。足りない時間は「募集中の枠」として保存し、カレンダーに出せます。${a.extend ? "" : "上の「前後に延ばしてよい」にチェックを入れて作り直すと、入れられる人が増えることがあります。"}</div>`;
+    h += saveRow;
     h += `<div class="section-title">案: ${p.added.length} 件のシフト${p.added.some(x => x._upd) ? `（うち ${p.added.filter(x => x._upd).length} 件は今のシフトを延ばす）` : "を追加"}</div>
       <div class="scroll"><table class="sum"><thead><tr><th class="name">スタッフ</th><th>今の勤務</th><th>追加</th><th>追加後の合計</th></tr></thead><tbody>`
       + rows.map(r => `<tr><td class="name"><span class="dot" style="${colorVar(r.st)}"></span>${esc(r.st.name)}${r.sub ? "" : ` <span class="status">未提出</span>`}</td><td>${hrs(r.b)}</td><td>${r.n ? `+${hrs(r.f - r.b)}（${r.n}件）` : "—"}</td><td>${hrs(r.f)}</td></tr>`).join("") + `</tbody></table></div>`;
@@ -1284,13 +1324,13 @@ function autoPanel() {
       h += `<div class="section-title">追加するシフト</div><div class="plan-list">` + Object.keys(byDay).map(ds => `<div class="plan-day"><span class="mono">${md(ds)}</span><span>${byDay[ds].map(s => `<span class="dot" style="${colorVar(staffById(s.staffId))}"></span>${esc(nameOf(s.staffId))} <span class="mono">${s.start}–${s.end}</span>${s._upd ? `<span class="hint">（${esc(s._from)} から延長）</span>` : ""}`).join("　")}</span></div>`).join("") + `</div>`;
     }
     h += `<div class="section-title">案を入れても足りない時間</div>`;
-    h += p.unfilled.length ? `<div class="plan-list">` + p.unfilled.map(u => `<div class="plan-day"><span class="mono need-ng">${md(u.ds)}</span><span><span class="need-ng">${u.sg.map(shortText).join("、")}</span>${u.why && u.why.length ? `<br><span class="hint">${u.why.map(w => `${esc(w.name)}：${esc(w.text)}`).join("　／　")}</span>` : ""}</span></div>`).join("") + `</div><p class="hint">希望を出している人だけでは埋まりません。スタッフに声をかけるか、手で入れてください。</p>` : `<p class="need-ok">すべての時間帯が埋まります。</p>`;
+    h += p.unfilled.length ? `<div class="plan-list">` + p.unfilled.map(u => `<div class="plan-day"><span class="mono need-ng">${md(u.ds)}</span><span><span class="need-ng">${u.sg.map(shortText).join("、")}</span>${u.why && u.why.length ? `<br><span class="hint">${u.why.map(w => `${esc(w.name)}：${esc(w.text)}`).join("　／　")}</span>` : ""}</span></div>`).join("") + `</div><p class="hint">希望を出している人だけでは埋まりません。保存すると、この時間は「募集中の枠」としてカレンダーに出ます。あとで人を決めたら、その日の「人を決めて入れる」から入れてください。</p>` : `<p class="need-ok">すべての時間帯が埋まります。</p>`;
     h += saveRow.replace(/id="auto-(go|no|ask)"/g, 'id="auto-$1-2"');
   }
   return h + `</section>`;
 }
 async function autoApply() {
-  const p = S.auto.plan; if (!p || !p.added.length || S.auto.running) return;
+  const p = S.auto.plan; if (!p || !(p.added.length || p.unfilled.length) || S.auto.running) return;
   if (p.month !== curYm()) return;
   S.auto.running = true; S.auto.confirm = false; let done = 0;
   S.auto.msg = { kind: "", text: `0 / ${p.added.length} 件を保存しました…` }; render();
@@ -1300,7 +1340,12 @@ async function autoApply() {
       else await S.db.collection("shifts").add({ date: s.date, staffId: s.staffId, start: s.start, end: s.end, breakMin: s.breakMin, breakAuto: true, note: "", auto: true, updatedAt: Date.now() });
       done++; S.auto.msg = { kind: "", text: `${done} / ${p.added.length} 件を保存しました…` }; render();
     }
-    S.auto.msg = { kind: "ok", text: `${done} 件のシフトを保存しました。カレンダーで確認・修正できます。` }; S.auto.plan = null;
+    // 足りない時間を募集中の枠として保存（この月で案の対象にした日の分は入れ替える）
+    const m = { ...S.openSlots }, today = ymd(new Date());
+    for (const k of Object.keys(m)) if (k.startsWith(p.month) && !(S.auto.skipPast && k < today)) delete m[k];
+    for (const u of p.unfilled) m[u.ds] = u.sg.map(x => ({ from: x.from, to: x.to, short: x.short }));
+    await S.db.doc("settings/openSlots").set({ byDate: m, updatedAt: Date.now() });
+    S.auto.msg = { kind: "ok", text: `${done ? `${done} 件のシフトを保存しました。` : ""}${p.unfilled.length ? `足りない時間（${p.unfilled.length} 日分）は「募集中」としてカレンダーに出しました。` : ""}カレンダーで確認・修正できます。` }; S.auto.plan = null;
   } catch (e) { S.auto.msg = { kind: "err", text: `${done} 件を保存したところで止まりました。${dbErrText(e)}` }; S.auto.plan = null; }
   S.auto.running = false; render();
 }
@@ -1375,6 +1420,8 @@ const A = {
   async delshift(t) { S.confirmDel = null; await write(() => S.db.doc("shifts/" + t.dataset.id).delete(), "シフトを削除しました"); if (S.form.editing === t.dataset.id) S.form = blankForm(); },
   editshift(t) { const s = S.shifts.find(x => x.id === t.dataset.id); if (!s) return; S.form = { editing: s.id, staffId: s.staffId, start: s.start, end: s.end, breakMin: brkOf(s), breakTouched: !s.breakAuto, note: s.note || "" }; queueMicrotask(() => document.getElementById("f-staff")?.focus()); },
   cancelEdit() { S.form = blankForm(); },
+  openFill(t) { const start = clock(Number(t.dataset.a)), end = clock(Number(t.dataset.b)); S.form = { ...blankForm(), start, end, breakMin: suggestBreak(start, end) }; queueMicrotask(() => { const el = document.getElementById("f-staff"); if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); el.focus(); } }); toast("時間を入れました。スタッフを選んで「追加する」を押してください"); },
+  async openDel() { const m = { ...S.openSlots }; delete m[S.sel]; await write(() => S.db.doc("settings/openSlots").set({ byDate: m, updatedAt: Date.now() }), "募集中の枠を消しました"); },
   fillFromReq(t) { const r = reqsOnDay(S.sel).find(x => x.staffId === t.dataset.id); if (!r) return; const start = r.k === "part" && r.start ? r.start : S.form.start, end = r.k === "part" && r.end ? r.end : S.form.end; S.form = { ...blankForm(), staffId: r.staffId, start, end, breakMin: suggestBreak(start, end) }; queueMicrotask(() => document.getElementById("f-submit")?.focus()); },
   reqCycle(t) { const r = S.req, k = t.dataset.k, cur = (r.days[k] && r.days[k].k) || "", next = CYCLE[cur]; if (next) r.days[k] = { ...(r.days[k] || {}), k: next }; else delete r.days[k]; r.dirty = true; },
   reqReset() { loadReqDraft(); },
@@ -1598,6 +1645,7 @@ function startData() {
   unsubs.push(db.doc("settings/staffing").onSnapshot(snap => { S.staffing = snap.exists && snap.data().byDow ? { byDow: snap.data().byDow } : { byDow: {} }; render(); }, onDbErr));
   unsubs.push(db.doc("settings/main").onSnapshot(snap => { if (snap.exists) S.settings = { ...S.settings, ...snap.data() }; render(); }, onDbErr));
   // 日ごとの店舗メモ（PDF の「店舗メモ」行に出す）。settings/dayMemos.byDate["YYYY-MM-DD"]
+  unsubs.push(db.doc("settings/openSlots").onSnapshot(snap => { S.openSlots = (snap.exists && snap.data().byDate) || {}; render(); }, onDbErr));
   unsubs.push(db.doc("settings/dayMemos").onSnapshot(snap => { S.dayMemos = (snap.exists && snap.data().byDate) || {}; render(); }, onDbErr));
   subscribeMonth();
   render();
