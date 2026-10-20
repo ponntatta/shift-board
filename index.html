@@ -572,7 +572,7 @@ function renderDay() {
       <label class="f full">スタッフ<select id="f-staff" data-bind="form.staffId" required><option value="">選んでください</option>${S.staff.map(st => `<option value="${st.id}" ${st.id === f.staffId ? "selected" : ""}>${esc(st.name)}</option>`).join("")}</select></label>
       <label class="f">開始<input type="time" id="f-start" data-bind="form.start" value="${f.start}" required step="300"></label>
       <label class="f">終了<input type="time" id="f-end" data-bind="form.end" value="${f.end}" required step="300"></label>
-      <label class="f">休憩（分）<input type="number" id="f-break" data-bind="form.breakMin" value="${f.breakMin}" min="0" step="5" inputmode="numeric"></label>
+      <label class="f">休憩（分）<input type="number" id="f-break" data-bind="form.breakMin" value="${f.breakMin}" min="0" step="1" inputmode="numeric"></label>
       <label class="f">メモ<input id="f-note" data-bind="form.note" value="${esc(f.note)}" placeholder="例: レジ担当"></label>
       <p class="hint full">終了が開始より早いと、日をまたぐ夜勤として計算します。休憩はお店の設定の決まり（${esc(breakRulesText())}）で自動で入ります。休憩を手で変えたシフトは、その分数のまま計算します。</p>
       <div class="row full"><button class="btn primary" id="f-submit" type="submit">${f.editing ? "変更を保存" : "追加する"}</button>${f.editing ? `<button class="btn" type="button" id="f-cancel" data-act="cancelEdit">やめる</button>` : ""}</div>
@@ -985,11 +985,11 @@ function renderStaff() {
         <p class="hint full">分単位で入れられます（例: 8:30〜22:45）。夜勤まで表示したいときは、終了を開始より早い時刻にすると翌朝の時刻として扱います（例: 開始 17:00・終了 5:00 で翌朝 5:00 まで）。終了は翌朝 6:00 までにできます。</p>
         <div class="f full"><span>休憩の決まり</span>
           <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">${brRows(sf).map((r, i) => `<div class="row" style="align-items:center;gap:6px;flex-wrap:wrap">
-            勤務が<input type="number" id="br-h-${i}" data-bind="setf.br.${i}.h" value="${esc(r.h)}" min="0.5" max="24" step="0.25" inputmode="decimal" style="width:5.5em" aria-label="${i + 1}行目の勤務時間">時間を超えたら
-            <input type="number" id="br-b-${i}" data-bind="setf.br.${i}.b" value="${esc(r.b)}" min="1" max="240" step="5" inputmode="numeric" style="width:5em" aria-label="${i + 1}行目の休憩の分数">分の休憩
+            勤務が<input type="number" id="br-h-${i}" data-bind="setf.br.${i}.h" value="${esc(r.h)}" min="0" max="24" step="any" inputmode="decimal" style="width:5.5em" aria-label="${i + 1}行目の勤務時間">時間を超えたら
+            <input type="number" id="br-b-${i}" data-bind="setf.br.${i}.b" value="${esc(r.b)}" min="1" max="240" step="1" inputmode="numeric" style="width:5em" aria-label="${i + 1}行目の休憩の分数">分の休憩
             <button type="button" class="btn small" id="br-del-${i}" data-act="brDel" data-i="${i}" aria-label="${i + 1}行目を削除">削除</button></div>`).join("") || `<p class="muted" style="margin:0">休憩なし（決まりがありません）</p>`}</div>
           <div class="row" style="margin-top:8px"><button type="button" class="btn small" id="br-add" data-act="brAdd">＋ 決まりを追加</button></div>
-          <p class="hint" style="margin:6px 0 0">例: 「6 時間を超えたら 45 分」「8 時間を超えたら 60 分」。いくつ当てはまっても、休憩はいちばん長いものになります。時間は 0.25 刻み（6.5 = 6 時間 30 分）。休憩を手で変えていないシフトは、決まりを変えると休憩と給料の計算もすぐ変わります。労働基準法では 6 時間超で 45 分以上、8 時間超で 60 分以上が必要です。</p>
+          <p class="hint" style="margin:6px 0 0">例: 「6 時間を超えたら 45 分」「8 時間を超えたら 60 分」。いくつ当てはまっても、休憩はいちばん長いものになります。休憩は 1 分単位で入れられます。時間は小数でも入れられます（6.5 = 6 時間 30 分）。休憩を手で変えていないシフトは、決まりを変えると休憩と給料の計算もすぐ変わります。労働基準法では 6 時間超で 45 分以上、8 時間超で 60 分以上が必要です。</p>
         </div>
         <div class="row full"><button class="btn primary" id="set-submit" type="submit">設定を保存</button></div>
       </form>
