@@ -325,7 +325,7 @@ const ov = (a, b, c, d) => Math.max(0, Math.min(b, d) - Math.max(a, c));
 // 実働・深夜(22-5時)・残業(1日8時間超)を分で返す
 function calc(s) {
   const sp = span(s); if (!sp) return { work: 0, night: 0, over: 0 };
-  const total = sp.b - sp.a, brk = Math.min(Number(s.breakMin) || 0, total), work = total - brk;
+  const total = sp.b - sp.a, brk = Math.min(brkOf(s), total), work = total - brk;
   const night = Math.min(work, ov(sp.a, sp.b, 0, 300) + ov(sp.a, sp.b, 1320, 1740) + ov(sp.a, sp.b, 2760, 3180));
   return { work, night, over: Math.max(0, work - 480) };
 }
@@ -333,8 +333,19 @@ function calc(s) {
 const wageOf = st => { const p = S.priv[st.id]; return p && p.wage != null ? p.wage : (st.wage ?? null); };
 const emailOf = st => { const p = S.priv[st.id]; return (p && p.email) || st.email || null; };
 const payOf = (c, wage) => { const w = Number(wage) || 0; return (c.work * w + c.night * w * 0.25 + c.over * w * 0.25) / 60; };
-// 労働基準法の休憩: 6時間超で45分、8時間超で60分
-function suggestBreak(start, end) { const sp = span({ start, end }); if (!sp) return 0; const t = sp.b - sp.a; return t > 480 ? 60 : t > 360 ? 45 : 0; }
+// 休憩の決まり（お店の設定で変えられる）。「勤務が overMin 分を超えたら breakMin 分休憩」。初期値は労働基準法の最低ライン
+const DEFAULT_BREAK_RULES = [{ overMin: 360, breakMin: 45 }, { overMin: 480, breakMin: 60 }];
+const breakRules = () => Array.isArray(S.settings.breakRules) ? S.settings.breakRules : DEFAULT_BREAK_RULES;
+const fmtDur = m => m % 60 ? `${Math.floor(m / 60)}時間${m % 60}分` : `${m / 60}時間`;
+const breakRulesText = () => { const r = breakRules(); return r.length ? r.map(x => `${fmtDur(x.overMin)}超で${x.breakMin}分`).join("、") : "休憩なし"; };
+function suggestBreak(start, end) {
+  const sp = span({ start, end }); if (!sp) return 0;
+  const t = sp.b - sp.a; let b = 0;
+  for (const r of breakRules()) if (t > r.overMin) b = Math.max(b, r.breakMin);
+  return b;
+}
+// シフトの休憩: 手で決めていない（breakAuto）シフトは、今の休憩の決まりで計算する
+const brkOf = s => s.breakAuto ? suggestBreak(s.start, s.end) : (Number(s.breakMin) || 0);
 
 const pref = { get(k, d) { try { return localStorage.getItem("sb." + k) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem("sb." + k, v); } catch {} } };
 
@@ -540,7 +551,7 @@ function renderDay() {
         ? `<span class="row"><button class="btn small danger" id="del-yes-${s.id}" data-act="delshift" data-id="${s.id}">削除する</button><button class="btn small" id="del-no-${s.id}" data-act="cancelDel">やめる</button></span>`
         : `<span class="row"><button class="btn small" id="edit-${s.id}" data-act="editshift" data-id="${s.id}">編集</button><button class="btn small" id="askdel-${s.id}" data-act="askDel" data-id="${s.id}">削除</button></span>`;
       return `<li><span class="dot" style="${colorVar(st)}"></span><span><span class="who">${esc(nameOf(s.staffId))}</span> <span class="mono">${s.start}–${s.end}</span></span>${ctl}
-        <span class="meta">休憩 ${Number(s.breakMin) || 0}分 ・ 実働 <span class="num">${hrs(cc.work)}</span>${cc.night ? ` ・ 深夜 <span class="num">${hrs(cc.night)}</span>` : ""}${s.note ? `<br>${esc(s.note)}` : ""}</span></li>`;
+        <span class="meta">休憩 ${brkOf(s)}分${s.breakAuto ? "（決まりどおり）" : ""} ・ 実働 <span class="num">${hrs(cc.work)}</span>${cc.night ? ` ・ 深夜 <span class="num">${hrs(cc.night)}</span>` : ""}${s.note ? `<br>${esc(s.note)}` : ""}</span></li>`;
     }).join("") + `</ul>`;
   }
   // 希望
@@ -555,6 +566,7 @@ function renderDay() {
   // 追加フォーム
   if (S.admin && S.staff.length) {
     const f = S.form;
+    if (!f.breakTouched) f.breakMin = suggestBreak(f.start, f.end);
     h += `<div class="section-title">${f.editing ? "シフトを編集" : "シフトを追加"}</div>
     <form class="form" id="shift-form" data-form="shift">
       <label class="f full">スタッフ<select id="f-staff" data-bind="form.staffId" required><option value="">選んでください</option>${S.staff.map(st => `<option value="${st.id}" ${st.id === f.staffId ? "selected" : ""}>${esc(st.name)}</option>`).join("")}</select></label>
@@ -562,7 +574,7 @@ function renderDay() {
       <label class="f">終了<input type="time" id="f-end" data-bind="form.end" value="${f.end}" required step="300"></label>
       <label class="f">休憩（分）<input type="number" id="f-break" data-bind="form.breakMin" value="${f.breakMin}" min="0" step="5" inputmode="numeric"></label>
       <label class="f">メモ<input id="f-note" data-bind="form.note" value="${esc(f.note)}" placeholder="例: レジ担当"></label>
-      <p class="hint full">終了が開始より早いと、日をまたぐ夜勤として計算します。休憩は 6 時間超で 45 分、8 時間超で 60 分を自動で入れます。</p>
+      <p class="hint full">終了が開始より早いと、日をまたぐ夜勤として計算します。休憩はお店の設定の決まり（${esc(breakRulesText())}）で自動で入ります。休憩を手で変えたシフトは、その分数のまま計算します。</p>
       <div class="row full"><button class="btn primary" id="f-submit" type="submit">${f.editing ? "変更を保存" : "追加する"}</button>${f.editing ? `<button class="btn" type="button" id="f-cancel" data-act="cancelEdit">やめる</button>` : ""}</div>
     </form>`;
   }
@@ -577,7 +589,7 @@ function utcStamp(ds, m) {
   return new Date(Date.UTC(y, mo - 1, d, 0, m - 540)).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
 }
 const calTitle = s => `${nameOf(s.staffId)} シフト${S.settings.storeName ? `（${S.settings.storeName}）` : ""}`;
-const calDetail = s => `休憩 ${Number(s.breakMin) || 0}分${s.note ? "\n" + s.note : ""}\nシフトボードより`;
+const calDetail = s => `休憩 ${brkOf(s)}分${s.note ? "\n" + s.note : ""}\nシフトボードより`;
 function gcalLink(s) {
   const sp = span(s); if (!sp) return "#";
   return "https://calendar.google.com/calendar/render?action=TEMPLATE"
@@ -932,7 +944,7 @@ function renderSum() {
     h += `<div class="scroll"><table class="sum"><thead><tr><th class="name">スタッフ</th><th>出勤日数</th><th>実働</th><th>うち深夜</th><th>8時間超</th>${pay ? "<th>時給</th><th>給料の目安</th>" : ""}</tr></thead><tbody>`;
     h += rows.map(r => `<tr><td class="name"><span class="dot" style="${colorVar(r.st)}"></span>${esc(r.st.name)}<div class="hbar" style="${colorVar(r.st)};width:${r.work / max * 100}%"></div></td><td>${r.days}日</td><td>${hrs(r.work)}</td><td>${hrs(r.night)}</td><td>${hrs(r.over)}</td>${pay ? `<td>${wageOf(r.st) ? yen(wageOf(r.st)) : `<span class="muted">未設定</span>`}</td><td>${yen(r.pay)}</td>` : ""}</tr>`).join("");
     h += `</tbody><tfoot><tr><td class="name">合計</td><td>${tot.days}日</td><td>${hrs(tot.work)}</td><td>${hrs(tot.night)}</td><td>${hrs(tot.over)}</td>${pay ? `<td></td><td>${yen(tot.pay)}</td>` : ""}</tr></tfoot></table></div>`;
-    if (pay) h += `<p class="hint">時給と給料は管理者のあなたにだけ表示されます。給料の目安 = 実働 × 時給 ＋ 深夜（22時〜翌5時）の割増 25% ＋ 1 日 8 時間を超えた分の割増 25%。交通費・週 40 時間超の残業・税金は含みません。休憩は深夜以外の時間に取った前提で計算しています。</p>`;
+    if (pay) h += `<p class="hint">時給と給料は管理者のあなたにだけ表示されます。給料の目安 = 実働 × 時給 ＋ 深夜（22時〜翌5時）の割増 25% ＋ 1 日 8 時間を超えた分の割増 25%。実働は、勤務時間から休憩を引いた時間です（休憩はお店の設定の決まり: ${esc(breakRulesText())}。手で変えたシフトはその分数）。交通費・週 40 時間超の残業・税金は含みません。休憩は深夜以外の時間に取った前提で計算しています。</p>`;
   }
   return h + `</section><section class="panel">${gcalBox("month", list)}</section>`;
 }
@@ -971,11 +983,27 @@ function renderStaff() {
         <label class="f">タイムラインの開始<input type="time" id="set-open" data-bind="setf.open" value="${esc(hoursToHm(sf.open))}" step="60"></label>
         <label class="f">タイムラインの終了<input type="time" id="set-close" data-bind="setf.close" value="${esc(hoursToHm(sf.close))}" step="60"></label>
         <p class="hint full">分単位で入れられます（例: 8:30〜22:45）。夜勤まで表示したいときは、終了を開始より早い時刻にすると翌朝の時刻として扱います（例: 開始 17:00・終了 5:00 で翌朝 5:00 まで）。終了は翌朝 6:00 までにできます。</p>
+        <div class="f full"><span>休憩の決まり</span>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">${brRows(sf).map((r, i) => `<div class="row" style="align-items:center;gap:6px;flex-wrap:wrap">
+            勤務が<input type="number" id="br-h-${i}" data-bind="setf.br.${i}.h" value="${esc(r.h)}" min="0.5" max="24" step="0.25" inputmode="decimal" style="width:5.5em" aria-label="${i + 1}行目の勤務時間">時間を超えたら
+            <input type="number" id="br-b-${i}" data-bind="setf.br.${i}.b" value="${esc(r.b)}" min="1" max="240" step="5" inputmode="numeric" style="width:5em" aria-label="${i + 1}行目の休憩の分数">分の休憩
+            <button type="button" class="btn small" id="br-del-${i}" data-act="brDel" data-i="${i}" aria-label="${i + 1}行目を削除">削除</button></div>`).join("") || `<p class="muted" style="margin:0">休憩なし（決まりがありません）</p>`}</div>
+          <div class="row" style="margin-top:8px"><button type="button" class="btn small" id="br-add" data-act="brAdd">＋ 決まりを追加</button></div>
+          <p class="hint" style="margin:6px 0 0">例: 「6 時間を超えたら 45 分」「8 時間を超えたら 60 分」。いくつ当てはまっても、休憩はいちばん長いものになります。時間は 0.25 刻み（6.5 = 6 時間 30 分）。休憩を手で変えていないシフトは、決まりを変えると休憩と給料の計算もすぐ変わります。労働基準法では 6 時間超で 45 分以上、8 時間超で 60 分以上が必要です。</p>
+        </div>
         <div class="row full"><button class="btn primary" id="set-submit" type="submit">設定を保存</button></div>
-      </form></section>${needPanel()}</div>`;
+      </form>
+      <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">${S.brConfirm
+        ? `<p style="margin:0 0 8px">${monthLabel()}のシフト ${shiftsInMonth().length} 件の休憩を、今の決まり（${esc(breakRulesText())}）に合わせます。手で入れた休憩も上書きされます。</p><div class="row"><button type="button" class="btn small primary" id="br-apply-yes" data-act="brApply">合わせる</button><button type="button" class="btn small" id="br-apply-no" data-act="brApplyCancel">やめる</button></div>`
+        : `<button type="button" class="btn small" id="br-apply" data-act="brAsk" ${shiftsInMonth().length ? "" : "disabled"}>${monthLabel()}のシフトの休憩を、休憩の決まりに合わせる</button><p class="hint" style="margin:6px 0 0">決まりを作る前に入れたシフトや、手で休憩を変えたシフトは、そのままでは決まりが当てはまりません。まとめて合わせたいときに使います（表示している月だけ）。</p>`}</div>
+      </section>${needPanel()}</div>`;
   } else h += `<section class="panel"><h3>スタッフの登録について</h3><p class="muted">スタッフの追加・時給・お店の設定は管理者だけが変更できます。希望シフトは「希望シフト」タブから出せます。</p></section>`;
   return h + `</div>`;
 }
+
+// 休憩の決まりの入力中の行（時間は「時」、休憩は「分」の文字列）
+const brRows = sf => sf.br || breakRules().map(r => ({ h: String(r.overMin / 60), b: String(r.breakMin) }));
+function setfDraft() { if (!S.setf) S.setf = { ...S.settings }; if (!S.setf.br) S.setf.br = brRows(S.setf); return S.setf; }
 
 /* 希望カレンダー（管理者だけ） */
 function renderReqCal() {
@@ -1018,7 +1046,7 @@ function autoPlan() {
   for (const st of S.staff) { mins[st.id] = 0; days[st.id] = new Set(); }
   for (const s of pool) if (s.date.startsWith(k) && mins[s.staffId] != null) { mins[s.staffId] += calc(s).work; days[s.staffId].add(s.date); }
   const before = { ...mins }, added = [];
-  const mk = (ds, staffId, a, b) => { const start = clock(a), end = clock(b % 1440); return { _new: true, date: ds, staffId, start, end, breakMin: suggestBreak(start, end) }; };
+  const mk = (ds, staffId, a, b) => { const start = clock(a), end = clock(b % 1440); return { _new: true, date: ds, staffId, start, end, breakMin: suggestBreak(start, end), breakAuto: true }; };
   for (let d = 1; d <= dim; d++) {
     const ds = `${k}-${pad(d)}`;
     if (S.auto.skipPast && ds < today) continue;
@@ -1098,7 +1126,7 @@ async function autoApply() {
   S.auto.msg = { kind: "", text: `0 / ${p.added.length} 件を保存しました…` }; render();
   try {
     for (const s of p.added) {
-      await S.db.collection("shifts").add({ date: s.date, staffId: s.staffId, start: s.start, end: s.end, breakMin: s.breakMin, note: "", auto: true, updatedAt: Date.now() });
+      await S.db.collection("shifts").add({ date: s.date, staffId: s.staffId, start: s.start, end: s.end, breakMin: s.breakMin, breakAuto: true, note: "", auto: true, updatedAt: Date.now() });
       done++; S.auto.msg = { kind: "", text: `${done} / ${p.added.length} 件を保存しました…` }; render();
     }
     S.auto.msg = { kind: "ok", text: `${done} 件のシフトを保存しました。カレンダーで確認・修正できます。` }; S.auto.plan = null;
@@ -1157,7 +1185,7 @@ const A = {
   pick(t) { setSel(t.dataset.d); S.confirmDel = null; if (S.gcal.confirm === "day") S.gcal.confirm = null; },
   askDel(t) { S.confirmDel = t.dataset.id; }, cancelDel() { S.confirmDel = null; },
   async delshift(t) { S.confirmDel = null; await write(() => S.db.doc("shifts/" + t.dataset.id).delete(), "シフトを削除しました"); if (S.form.editing === t.dataset.id) S.form = blankForm(); },
-  editshift(t) { const s = S.shifts.find(x => x.id === t.dataset.id); if (!s) return; S.form = { editing: s.id, staffId: s.staffId, start: s.start, end: s.end, breakMin: Number(s.breakMin) || 0, breakTouched: true, note: s.note || "" }; queueMicrotask(() => document.getElementById("f-staff")?.focus()); },
+  editshift(t) { const s = S.shifts.find(x => x.id === t.dataset.id); if (!s) return; S.form = { editing: s.id, staffId: s.staffId, start: s.start, end: s.end, breakMin: brkOf(s), breakTouched: !s.breakAuto, note: s.note || "" }; queueMicrotask(() => document.getElementById("f-staff")?.focus()); },
   cancelEdit() { S.form = blankForm(); },
   fillFromReq(t) { const r = reqsOnDay(S.sel).find(x => x.staffId === t.dataset.id); if (!r) return; const start = r.k === "part" && r.start ? r.start : S.form.start, end = r.k === "part" && r.end ? r.end : S.form.end; S.form = { ...blankForm(), staffId: r.staffId, start, end, breakMin: suggestBreak(start, end) }; queueMicrotask(() => document.getElementById("f-submit")?.focus()); },
   reqCycle(t) { const r = S.req, k = t.dataset.k, cur = (r.days[k] && r.days[k].k) || "", next = CYCLE[cur]; if (next) r.days[k] = { ...(r.days[k] || {}), k: next }; else delete r.days[k]; r.dirty = true; },
@@ -1211,6 +1239,14 @@ const A = {
     if (ok) r.dirty = false;
   },
   pickColor(t) { S.sf.color = Number(t.dataset.v); },
+  brAdd() { const br = setfDraft().br, last = br[br.length - 1]; br.push({ h: last ? String(Number(last.h || 0) + 2) : "6", b: last ? String(Number(last.b || 0) + 15) : "45" }); },
+  brDel(t) { setfDraft().br.splice(Number(t.dataset.i), 1); },
+  brAsk() { S.brConfirm = true; },
+  brApplyCancel() { S.brConfirm = false; },
+  async brApply() {
+    const list = shiftsInMonth(); S.brConfirm = false;
+    await write(() => Promise.all(list.map(s => S.db.doc("shifts/" + s.id).update({ breakAuto: true, breakMin: suggestBreak(s.start, s.end), updatedAt: Date.now() }))), `${list.length} 件のシフトの休憩を決まりに合わせました`);
+  },
   editStaff(t) {
     const st = staffById(t.dataset.id); if (!st) return;
     S.sf = { id: st.id, name: st.name, wage: wageOf(st) ?? "", color: st.color || 0, email: emailOf(st) || "" };
@@ -1256,7 +1292,7 @@ function setBind(path, value) {
 }
 document.addEventListener("input", e => {
   const t = e.target, b = t.dataset && t.dataset.bind; if (!b || t.tagName === "SELECT" || t.type === "checkbox") return;
-  if (b === "setf.storeName" || b.startsWith("setf.")) { if (!S.setf) S.setf = { ...S.settings }; }
+  if (b.startsWith("setf.")) setfDraft();
   if (b.startsWith("need.")) needDraft();
   setBind(b, t.value);
   if (b.startsWith("req.")) S.req.dirty = true;
@@ -1264,7 +1300,7 @@ document.addEventListener("input", e => {
 });
 document.addEventListener("change", e => {
   const t = e.target, b = t.dataset && t.dataset.bind; if (!b) return;
-  if (b.startsWith("setf.") && !S.setf) S.setf = { ...S.settings };
+  if (b.startsWith("setf.")) setfDraft();
   if (b.startsWith("need.")) needDraft();
   setBind(b, t.type === "checkbox" ? t.checked : t.value);
   if ((b === "form.start" || b === "form.end") && !S.form.breakTouched) S.form.breakMin = suggestBreak(S.form.start, S.form.end);
@@ -1283,7 +1319,8 @@ document.addEventListener("submit", async e => {
     if (!f.staffId) return toast("スタッフを選んでください。", true);
     if (!span(f)) return toast("開始と終了の時刻を入れてください。", true);
     const dup = S.shifts.find(s => s.date === S.sel && s.staffId === f.staffId && s.id !== f.editing);
-    const data = { date: S.sel, staffId: f.staffId, start: f.start, end: f.end, breakMin: Math.max(0, Number(f.breakMin) || 0), note: f.note.trim(), updatedAt: Date.now() };
+    const auto = !f.breakTouched;
+    const data = { date: S.sel, staffId: f.staffId, start: f.start, end: f.end, breakMin: auto ? suggestBreak(f.start, f.end) : Math.max(0, Number(f.breakMin) || 0), breakAuto: auto, note: f.note.trim(), updatedAt: Date.now() };
     const ok = await write(() => f.editing ? S.db.doc("shifts/" + f.editing).set(data) : S.db.collection("shifts").add(data), f.editing ? "シフトを変更しました" : (dup ? "シフトを追加しました（同じ日に 2 回目の勤務です）" : "シフトを追加しました"));
     if (ok) S.form = { ...blankForm(), start: f.start, end: f.end, breakMin: f.breakMin, breakTouched: f.breakTouched };
   } else if (kind === "staff") {
@@ -1307,7 +1344,17 @@ document.addEventListener("submit", async e => {
     if (cMin > 30 * 60) return toast("終了は翌朝 6:00 までにしてください。", true);
     if (cMin - oMin < 60) return toast("開始と終了は 1 時間以上あけてください。", true);
     const open = oMin / 60, close = cMin / 60;
-    const data = { storeName: String(f.storeName || "").trim(), deadlineDay: Math.min(31, Math.max(1, Number(f.deadlineDay) || 20)), open, close };
+    // 休憩の決まり: 空の行は無視し、半端な行はとめる
+    const rules = [];
+    for (const [i, r] of brRows(f).entries()) {
+      const hs = String(r.h ?? "").trim(), bs = String(r.b ?? "").trim();
+      if (!hs && !bs) continue;
+      const overMin = Math.round(Number(hs) * 60), breakMin = Math.round(Number(bs));
+      if (!(overMin > 0 && overMin <= 1440) || !(breakMin > 0 && breakMin <= 240)) return toast(`休憩の決まりの ${i + 1} 行目を確かめてください（時間は 0 より大きく、休憩は 1〜240 分）。`, true);
+      rules.push({ overMin, breakMin });
+    }
+    rules.sort((a, b) => a.overMin - b.overMin);
+    const data = { storeName: String(f.storeName || "").trim(), deadlineDay: Math.min(31, Math.max(1, Number(f.deadlineDay) || 20)), open, close, breakRules: rules };
     const ok = await write(() => S.db.doc("settings/main").set(data), "設定を保存しました");
     if (ok) S.setf = null;
   }
