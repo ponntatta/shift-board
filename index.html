@@ -193,6 +193,12 @@ table { border-collapse: collapse; width: 100%; }
 .slist li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; }
 .slist .who { font-weight: 700; }
 .slist .meta { grid-column: 2 / 4; font-size: 12.5px; color: var(--muted); }
+.empty-box { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+.empty-box summary { cursor: pointer; font-weight: 700; }
+.empty-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13.5px; }
+.empty-list li { display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; }
+.empty-none { font-size: 13.5px; margin: 10px 0 0; line-height: 1.9; }
+.linkbtn { background: none; border: 0; padding: 0 2px; color: var(--accent, #2148C9); text-decoration: underline; cursor: pointer; font: inherit; min-width: 5.5em; text-align: left; }
 .reqgrp { display: flex; flex-direction: column; gap: 4px; font-size: 13.5px; }
 .reqline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .mark { font-weight: 700; width: 1.4em; text-align: center; }
@@ -356,7 +362,7 @@ const S = {
   admin: false, role: "guest", me: "", tokens: {}, invite: null,
   staff: [], shifts: [], reqs: [], settings: { storeName: "", deadlineDay: 20, open: 8, close: 24 },
   tab: pref.get("tab", "cal"), calMode: pref.get("calMode", "month"), sel: ymd(now),
-  form: blankForm(), confirmDel: null,
+  form: blankForm(), confirmDel: null, emptyFuture: true, emptyOpen: true,
   req: { staffId: pref.get("me", ""), days: {}, note: "", dirty: false },
   sf: { id: null, name: "", wage: "", color: 0, email: "", desired: "" }, setf: null, priv: {},
   staffing: { byDow: {} }, need: null, needDow: 1, dayMemos: {}, dmDraft: null,
@@ -407,6 +413,39 @@ function shortages(ds, shifts) {
   return out;
 }
 const shortText = s => `${fmtT(s.from)}–${fmtT(s.to)} ${s.short}人不足`;
+// お店の開始〜終了のうち、シフトが 1 人も入っていない区間を { from, to } で返す（分は当日 0:00 起点）
+function emptyTimes(ds) {
+  const o = Math.round((Number(S.settings.open) || 0) * 60), c = Math.max(Math.round((Number(S.settings.close) || 0) * 60), o + 60);
+  const d = parseYmd(ds), prev = ymd(addDays(d, -1)), next = ymd(addDays(d, 1)), iv = [];
+  for (const s of S.shifts) {
+    const off = s.date === ds ? 0 : s.date === prev ? -1440 : s.date === next ? 1440 : null; if (off === null) continue;
+    const sp = span(s); if (sp && sp.b + off > o && sp.a + off < c) iv.push([Math.max(o, sp.a + off), Math.min(c, sp.b + off)]);
+  }
+  iv.sort((a, b) => a[0] - b[0]);
+  const out = []; let t = o;
+  for (const [a, b] of iv) { if (a > t) out.push({ from: t, to: a }); t = Math.max(t, b); }
+  if (t < c) out.push({ from: t, to: c });
+  return out;
+}
+const emptyText = e => `${fmtT(e.from)}–${fmtT(e.to)}`;
+// 表示中の月の「1 人もいない時間」の一覧
+function renderEmpty() {
+  const first = monthFirst(), dim = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate(), k = curYm(), today = ymd(new Date());
+  const o = Math.round((Number(S.settings.open) || 0) * 60), c = Math.max(Math.round((Number(S.settings.close) || 0) * 60), o + 60);
+  const part = [], none = [];
+  for (let d = 1; d <= dim; d++) {
+    const ds = `${k}-${pad(d)}`; if (S.emptyFuture && ds < today) continue;
+    const e = emptyTimes(ds); if (!e.length) continue;
+    if (e.length === 1 && e[0].from === o && e[0].to === c) none.push(ds); else part.push({ ds, e });
+  }
+  const total = part.length + none.length, dayBtn = ds => `<button class="linkbtn" data-act="pick" data-d="${ds}">${md(ds)}</button>`;
+  let h = `<details class="empty-box" id="empty-box" ${S.emptyOpen === false ? "" : "open"}><summary id="empty-summary" data-act="emptyToggle">1人もいない時間<span class="hint">　${total ? `${total}日あります` : "ありません"}（お店の営業 ${fmtT(o)}–${fmtT(c)} のうち）</span></summary>`;
+  h += `<label class="row hint" style="margin:6px 0"><input type="checkbox" data-bind="emptyFuture" ${S.emptyFuture ? "checked" : ""}> 今日より前の日は出さない</label>`;
+  if (!total) return h + `<p class="need-ok">この月は、営業時間中いつもだれかが入っています。</p></details>`;
+  if (part.length) h += `<ul class="empty-list">` + part.map(x => `<li>${dayBtn(x.ds)}<span class="need-ng">${x.e.map(emptyText).join("、")}</span></li>`).join("") + `</ul>`;
+  if (none.length) h += `<p class="empty-none"><b>シフトが1件もない日（終日だれもいない）</b><br>${none.map(dayBtn).join(" ")}</p>`;
+  return h + `</details>`;
+}
 
 /* ---------- render ---------- */
 function render() {
@@ -470,6 +509,7 @@ function renderCal() {
         <div class="row"><div class="seg" role="group" aria-label="表示切り替え"><button id="mode-month" data-act="mode" data-v="month" aria-pressed="${S.calMode === "month"}">月</button><button id="mode-week" data-act="mode" data-v="week" aria-pressed="${S.calMode === "week"}">週（シフト表）</button></div>${S.staff.length ? pdfButton("cal") + pdfMineButton() : ""}</div>
       </div>
       ${S.calMode === "month" ? monthGrid() : weekTable()}
+      ${renderEmpty()}
     </section>
     <aside class="panel">${renderDay()}</aside>
   </div>`;
@@ -543,6 +583,9 @@ function renderDay() {
     h += sg.length ? sg.map(s => `<div class="reqline need-ng">${fmtT(s.from)}–${fmtT(s.to)} が ${s.short}人不足（必要 ${s.need}人）</div>`).join("") : `<div class="reqline need-ok">すべての時間帯で足りています</div>`;
     h += `</div>`;
   }
+  // 1 人もいない時間
+  const em = emptyTimes(S.sel);
+  h += `<div class="section-title">1人もいない時間</div><div class="reqgrp">${em.length ? em.map(e => `<div class="reqline need-ng">${emptyText(e)} はだれもいません</div>`).join("") : `<div class="reqline need-ok">営業時間中いつもだれかが入っています</div>`}</div>`;
   // シフト一覧
   if (list.length) {
     h += `<div class="section-title">シフト</div><ul class="slist">` + list.map(s => {
@@ -1331,6 +1374,7 @@ const A = {
     const ok = await write(() => S.db.doc(`requests/${r.staffId}_${curYm()}`).set({ staffId: r.staffId, month: curYm(), days: r.days, weekly, note: r.note.trim(), updatedAt: Date.now(), by: S.authUser ? S.authUser.uid : null }), "希望シフトを提出しました");
     if (ok) { r.dirty = false; pref.set("weekly." + r.staffId, JSON.stringify(weekly)); }
   },
+  emptyToggle(t, e) { e.preventDefault(); const det = t.closest("details"); S.emptyOpen = !(det && det.open); },
   weeklyToggle(t, e) { e.preventDefault(); const det = t.closest("details"); S.req.weeklyOpen = !(det && det.open); },
   weeklyApply(t) {
     const r = S.req, mode = t.dataset.v, wk = r.weekly || {}, first = monthFirst(), dim = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
