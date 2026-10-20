@@ -1273,15 +1273,36 @@ function autoPlan() {
         // 埋める範囲: この時間帯の中で人が足りない最初から最後まで（足りている時間には入れない）
         const lo = Math.max(ssp.a, seg.from), hi = Math.min(ssp.b, Math.max(...segs.map(x => x.to)));
         let best = null;
+        // その日に人が足りない時間（どの時間帯でも）を 5 分ごとに数えておく（累積和）
+        const daySg = shortages(ds, pool), cum = new Int32Array(578);
+        for (let i = 0; i < 577; i++) { const t = i * 5; cum[i + 1] = cum[i] + (daySg.some(x => x.from <= t && t < x.to) ? 1 : 0); }
+        const covered = (x, y) => (cum[Math.min(576, Math.ceil(y / 5))] - cum[Math.max(0, Math.floor(x / 5))]) * 5;
+        const oMin = Math.round(S.settings.open * 60), cMin = Math.max(Math.round(S.settings.close * 60), oMin + 60);
         S.staff.forEach((st, idx) => {
           const av = availOf(st.id, ds); if (!av) return;
           let a = Math.max(lo, av.a), b = Math.min(hi, av.b);
           if (!(a < seg.to && b > seg.from)) return;
-          // 短すぎる案は延ばす: 1 時間か、本人の希望する最低時間まで（希望のときは営業時間の中で延ばす）
-          const mw = minWorkOf(st.id), need = Math.max(60, mw), lim = mw > 60 ? [Math.max(av.a, Math.round(S.settings.open * 60)), Math.min(av.b, Math.max(Math.round(S.settings.close * 60), Math.round(S.settings.open * 60) + 60))] : [Math.max(ssp.a, av.a), Math.min(ssp.b, av.b)];
-          if (b - a < need) { b = Math.min(lim[1], a + need); if (b - a < need) a = Math.max(lim[0], b - need); if (b - a < need) return; }
           if (b - a > MAX_SHIFT) b = a + MAX_SHIFT; // 長すぎる分は切って、残りは別の人で埋める
           const mine = pool.filter(s => s.date === ds && s.staffId === st.id);
+          // 最低時間は「これ以上なら入れる」という下限。ちょうどその長さにはせず、
+          // 足りない時間をなるべく多くまかなえる長さ（9 時間まで）を、本人の入れる時間と営業時間の中で選ぶ
+          const mw = minWorkOf(st.id), need = Math.max(60, mw);
+          if (!mine.length) {
+            const L = Math.max(av.a, Math.min(oMin, ssp.a)), R = Math.min(av.b, Math.max(cMin, ssp.b));
+            if (R - L < need) return;
+            let win = null;
+            for (let x = Math.max(L, b - MAX_SHIFT); x <= a; x += 5) {
+              for (let y = Math.max(b, x + need); y <= Math.min(R, x + MAX_SHIFT); y += 5) {
+                const cov = covered(x, y), score = cov - 0.5 * (y - x - cov);
+                if (!win || score > win.score || (score === win.score && y - x < win.y - win.x)) win = { x, y, score };
+              }
+            }
+            if (!win) return;
+            a = win.x; b = win.y;
+          } else if (b - a < need) {
+            const lim = [Math.max(ssp.a, av.a), Math.min(ssp.b, av.b)];
+            b = Math.min(lim[1], a + need); if (b - a < need) a = Math.max(lim[0], b - need); if (b - a < need) return;
+          }
           const adj = mine.find(s => { const p = span(s); return p.b === a || p.a === b; });
           // すでに確定シフトがある日は増やさない（「前後に延ばしてよい」のときは、つながる時間だけ延ばす）
           if (mine.some(s => !s._new) && !(S.auto.extend && adj)) return;
