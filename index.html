@@ -295,6 +295,31 @@ const shortT = t => t && t.endsWith(":00") ? String(Number(t.slice(0, 2))) : (t 
 const yen = n => "¥" + Math.round(n).toLocaleString("ja-JP");
 const md = s => { const d = parseYmd(s); return `${d.getMonth() + 1}/${d.getDate()}(${WD[d.getDay()]})`; };
 
+/* 日本の祝日（振替休日・国民の休日を含む）。春分・秋分は近似式 */
+function baseHoliday(y, m, d) {
+  const nthMon = n => { const w = new Date(y, m - 1, 1).getDay(); return 1 + ((8 - w) % 7) + (n - 1) * 7; };
+  const eq = c => Math.floor(c + 0.242194 * (y - 1980) - Math.floor((y - 1980) / 4));
+  const fixed = { "1-1": "元日", "2-11": "建国記念の日", "2-23": "天皇誕生日", "4-29": "昭和の日", "5-3": "憲法記念日", "5-4": "みどりの日", "5-5": "こどもの日", "8-11": "山の日", "11-3": "文化の日", "11-23": "勤労感謝の日" };
+  if (fixed[`${m}-${d}`]) return fixed[`${m}-${d}`];
+  if (m === 1 && d === nthMon(2)) return "成人の日";
+  if (m === 7 && d === nthMon(3)) return "海の日";
+  if (m === 9 && d === nthMon(3)) return "敬老の日";
+  if (m === 10 && d === nthMon(2)) return "スポーツの日";
+  if (m === 3 && d === eq(20.8431)) return "春分の日";
+  if (m === 9 && d === eq(23.2488)) return "秋分の日";
+  return "";
+}
+function jpHoliday(dt) {
+  const y = dt.getFullYear(), m = dt.getMonth() + 1, d = dt.getDate();
+  const b = baseHoliday(y, m, d); if (b) return b;
+  // 振替休日: 日曜の祝日から続く祝日の翌日
+  for (let k = 1; k <= 7; k++) { const p = addDays(dt, -k); if (!baseHoliday(p.getFullYear(), p.getMonth() + 1, p.getDate())) break; if (p.getDay() === 0) return "振替休日"; }
+  // 国民の休日: 祝日に挟まれた平日
+  const a = addDays(dt, -1), c = addDays(dt, 1);
+  if (dt.getDay() !== 0 && baseHoliday(a.getFullYear(), a.getMonth() + 1, a.getDate()) && baseHoliday(c.getFullYear(), c.getMonth() + 1, c.getDate())) return "国民の休日";
+  return "";
+}
+
 function span(s) { const a = toMin(s.start); let b = toMin(s.end); if (isNaN(a) || isNaN(b)) return null; if (b <= a) b += 1440; return { a, b }; }
 const ov = (a, b, c, d) => Math.max(0, Math.min(b, d) - Math.max(a, c));
 // 実働・深夜(22-5時)・残業(1日8時間超)を分で返す
@@ -322,7 +347,7 @@ const S = {
   form: blankForm(), confirmDel: null,
   req: { staffId: pref.get("me", ""), days: {}, note: "", dirty: false },
   sf: { id: null, name: "", wage: "", color: 0, email: "" }, setf: null, priv: {},
-  staffing: { byDow: {} }, need: null, needDow: 1,
+  staffing: { byDow: {} }, need: null, needDow: 1, dayMemos: {}, dmDraft: null,
   auto: { skipPast: true, plan: null, running: false, msg: null },
   gcal: { who: null },
   toast: null,
@@ -490,6 +515,14 @@ function renderDay() {
   h += `<div class="timeline" aria-label="時間帯ごとの配置"><div class="ticks">${zones}${ticks}</div>`;
   h += list.length ? list.map(s => { const sp = span(s); if (!sp) return ""; const L = Math.max(0, (sp.a - o) / range * 100), R = Math.min(100, (sp.b - o) / range * 100); const st = staffById(s.staffId); return `<div class="bar" style="${colorVar(st)}"><div style="left:${L}%;width:${Math.max(R - L, 1)}%" title="${esc(nameOf(s.staffId))} ${s.start}–${s.end}">${esc(nameOf(s.staffId))}</div></div>`; }).join("") : `<div class="empty-tl">この日はまだシフトがありません。</div>`;
   h += `</div>`;
+  // 店舗メモ・祝日
+  const hol = jpHoliday(d), memo = S.dayMemos[S.sel] || "";
+  if (S.admin) {
+    h += `<div class="section-title">店舗メモ${hol ? `<span class="hint">　祝日（${esc(hol)}）</span>` : ""}</div>
+      <div class="row"><input id="dm-text" data-bind="dmDraft" value="${esc(S.dmDraft ?? memo)}" maxlength="40" placeholder="例: 棚卸しのため 19:00 閉店" style="flex:1;min-width:0">
+      <button class="btn small" id="dm-save" data-act="dmSave" type="button">保存</button></div>
+      <p class="hint">シフト表の PDF の「店舗メモ」の行に出ます。祝日は自動で入ります。</p>`;
+  } else if (memo || hol) h += `<div class="section-title">店舗メモ</div><p>${esc([hol && `祝日（${hol}）`, memo].filter(Boolean).join("　"))}</p>`;
   // 必要人数との比較
   h += `<div class="section-title">必要人数</div>`;
   if (!slots.length) h += `<p class="hint">${S.admin ? "「スタッフ・設定」タブで曜日ごとの必要人数を入れると、人が足りない時間をここに表示します。" : "この曜日の必要人数は設定されていません。"}</p>`;
@@ -650,7 +683,8 @@ function matrix() {
 
 /* PDF（A4 横）。日本語フォントを PDF に埋め込まずに済むよう、画面のフォントで canvas に描いて貼る */
 function pdfButton(where) {
-  return `<button class="btn small" id="pdf-${where}" data-act="pdf" ${S.pdfBusy ? "disabled" : ""}>${S.pdfBusy ? "PDF を作成中…" : "シフト表・希望を PDF で保存"}</button>`;
+  const label = where === "req" ? "希望を PDF で保存" : "シフト表を PDF で保存";
+  return `<button class="btn small" id="pdf-${where}" data-act="pdf" data-v="${where}" ${S.pdfBusy ? "disabled" : ""}>${S.pdfBusy ? "PDF を作成中…" : label}</button>`;
 }
 const PDF = {
   W: 2480, H: 1754, M: 90,
@@ -739,33 +773,97 @@ function drawGrid(pages, o) {
     }
   }
 }
-// 確定シフト表: 誰が・いつ・何時から何時まで入っているか
-function drawShiftPages(pages) {
-  const list = shiftsInMonth(), C = PDF.C, k = curYm();
-  const cnt = d => new Set(list.filter(s => s.date === `${k}-${pad(d)}`).map(s => s.staffId)).size;
-  const total = list.reduce((a, s) => a + calc(s).work, 0);
-  drawGrid(pages, {
-    title: "シフト表", rowH: 84, rightHead: "実働合計",
-    subtitle: `シフト ${list.length} 件　総実働 ${hrs(total)}　各マスは 上が開始・下が終了の時刻（「9」は 9:00、「翌1」は翌日 1:00）`,
-    rows: S.staff.map(st => {
-      const mine = list.filter(s => s.staffId === st.id);
-      return {
-        label: st.name, sub: mine.length ? `${new Set(mine.map(s => s.date)).size}日` : "シフトなし",
-        right: hrs(mine.reduce((a, s) => a + calc(s).work, 0)),
-        cell: d => {
-          const sh = mine.filter(s => s.date === `${k}-${pad(d)}`).sort(byStart); if (!sh.length) return null;
-          const s = sh[0], sp = span(s), next = sp && sp.b >= 1440;
-          const out = [{ text: shortT(s.start), mono: true, size: 30 }, { text: (next ? "翌" : "") + shortT(s.end), mono: true, size: 30, color: C.muted }];
-          if (sh.length > 1) out.push({ text: `他${sh.length - 1}件`, size: 16, color: C.part });
-          return out;
-        },
-      };
-    }),
-    footer: { label: "出勤人数", labelSize: 24, cell: d => [{ text: String(cnt(d)), mono: true, size: 26, color: cnt(d) ? C.ink : C.muted }], right: hrs(total) },
-    blocks: [
-      { title: "人が足りない時間", color: C.ng, lines: [...Array(new Date(Number(k.slice(0, 4)), Number(k.slice(5, 7)), 0).getDate())].map((_, i) => `${k}-${pad(i + 1)}`).map(ds => { const sg = shortages(ds); return sg.length ? `${md(ds)}　${sg.map(shortText).join("、")}` : ""; }).filter(Boolean) },
-      { title: "シフトのメモ", lines: list.filter(s => s.note).map(s => `${md(s.date)} ${nameOf(s.staffId)} ${s.start}–${s.end}：${s.note}`) },
-    ],
+/* スタッフ共有用のシフト表: 1 週間（月〜日）ずつの表を縦に並べる。
+   マスの色は勤務の種類（3 時間以下=短時間、開始が 12 時より前=早番・日中、それ以外=遅番・午後） */
+const SHARE = {
+  navy: "#1F3A5F", head: "#2F4553", sat: "#3B6A93", sun: "#9B3A3A", memo: "#FBF5E4", name: "#EEF1F5",
+  line: "#C3CAD4", ink: "#161E2E", muted: "#6A7385", note: "#9A5B13",
+  kinds: [{ k: "early", label: "早番・日中", fill: "#DCEBF7" }, { k: "late", label: "遅番・午後", fill: "#FCE4D2" }, { k: "short", label: "短時間", fill: "#E2EFD9" }, { k: "off", label: "休み", fill: "#FFFFFF" }],
+};
+const hm = t => { const m = toMin(t); return isNaN(m) ? (t || "") : `${Math.floor(m / 60)}:${pad(m % 60)}`; };
+function shiftKind(list) {
+  const total = list.reduce((a, s) => { const sp = span(s); return a + (sp ? sp.b - sp.a : 0); }, 0);
+  if (!total) return "off";
+  if (total <= 180) return "short";
+  return toMin(list[0].start) < 12 * 60 ? "early" : "late";
+}
+function drawSharePages(pages) {
+  const W = PDF.W, H = PDF.H, M = 80, F = PDF.F, C = SHARE;
+  const first = monthFirst(), y0 = first.getFullYear(), m0 = first.getMonth(), dim = new Date(y0, m0 + 1, 0).getDate();
+  // 月曜はじまりの週に分ける（月の外の日は入れない）
+  const weeks = []; let cur = [];
+  for (let d = 1; d <= dim; d++) { const dt = new Date(y0, m0, d); if (dt.getDay() === 1 && cur.length) { weeks.push(cur); cur = []; } cur.push(dt); }
+  if (cur.length) weeks.push(cur);
+  const staff = S.staff, ds = dt => ymd(dt);
+  const shiftsOf = (sid, dt) => S.shifts.filter(s => s.staffId === sid && s.date === ds(dt)).sort(byStart);
+  // 行の高さ: 2 件以上やメモ付きのマスがある行は高くする
+  const base = 58, lineH = 27;
+  const rowH = (st, wk) => Math.max(base, ...wk.map(dt => { const l = shiftsOf(st.id, dt); return l.length * lineH + (l.some(s => s.note) ? 20 : 0) + 18; }));
+  const memoH = 50, headH = 64, labelH = 40, gap = 20;
+  const blockH = wk => labelH + headH + memoH + staff.reduce((a, st) => a + rowH(st, wk), 0) + gap;
+  const titleH = 70, footH = 90, avail = H - 2 * M - titleH - footH;
+  // ページに入るだけの週を詰める
+  const groups = []; let g = [], used = 0;
+  for (const wk of weeks) { const h = blockH(wk); if (g.length && used + h > avail) { groups.push(g); g = []; used = 0; } g.push(wk); used += h; }
+  if (g.length) groups.push(g);
+  const store = S.settings.storeName ? `${S.settings.storeName}｜` : "";
+  const nameW = 190, tableW = W - 2 * M;
+  groups.forEach((grp, pi) => {
+    const cv = document.createElement("canvas"); cv.width = W; cv.height = H; const c = cv.getContext("2d");
+    c.fillStyle = "#FFFFFF"; c.fillRect(0, 0, W, H); c.textBaseline = "middle";
+    c.fillStyle = C.navy; c.textAlign = "left"; c.font = `700 40px ${F}`;
+    c.fillText(`${store}${m0 + 1}月シフト スタッフ共有用${groups.length > 1 ? `（${pi + 1}/${groups.length}）` : ""}`, M, M + 24);
+    let y = M + titleH;
+    const box = (x, yy, w, h, fill) => { c.fillStyle = fill; c.fillRect(x, yy, w, h); c.strokeStyle = C.line; c.lineWidth = 2; c.strokeRect(x, yy, w, h); };
+    for (const wk of grp) {
+      const colW = (tableW - nameW) / wk.length;
+      c.fillStyle = C.navy; c.textAlign = "left"; c.font = `700 26px ${F}`;
+      c.fillText(`${m0 + 1}/${wk[0].getDate()}〜${m0 + 1}/${wk[wk.length - 1].getDate()}`, M, y + labelH / 2 - 4);
+      y += labelH;
+      // 見出し
+      box(M, y, nameW, headH, C.head); c.fillStyle = "#FFFFFF"; c.textAlign = "center"; c.font = `500 24px ${F}`; c.fillText("スタッフ", M + nameW / 2, y + headH / 2);
+      wk.forEach((dt, i) => {
+        const x = M + nameW + i * colW, dow = dt.getDay(), hol = jpHoliday(dt);
+        box(x, y, colW, headH, dow === 0 || hol ? C.sun : dow === 6 ? C.sat : C.head);
+        c.fillStyle = "#FFFFFF"; c.font = `500 22px ${F}`; c.fillText(`${dt.getMonth() + 1}/${dt.getDate()}`, x + colW / 2, y + headH / 2 - 13);
+        c.fillText(`(${WD[dow]}${hol ? "・祝" : ""})`, x + colW / 2, y + headH / 2 + 14);
+      });
+      y += headH;
+      // 店舗メモ
+      box(M, y, nameW, memoH, C.name); c.fillStyle = C.ink; c.textAlign = "center"; c.font = `700 24px ${F}`; c.fillText("店舗メモ", M + nameW / 2, y + memoH / 2);
+      wk.forEach((dt, i) => {
+        const x = M + nameW + i * colW; box(x, y, colW, memoH, C.memo);
+        const hol = jpHoliday(dt), memo = S.dayMemos[ds(dt)] || "", text = [hol && `祝日（${hol}）`, memo].filter(Boolean).join(" ");
+        if (text) { c.fillStyle = C.muted; c.textAlign = "center"; fitText(c, text, x + colW / 2, y + memoH / 2, colW - 14, 400, 20, F); }
+      });
+      y += memoH;
+      // スタッフ
+      for (const st of staff) {
+        const rh = rowH(st, wk);
+        box(M, y, nameW, rh, C.name); c.fillStyle = C.ink; c.textAlign = "center"; fitText(c, st.name, M + nameW / 2, y + rh / 2, nameW - 20, 700, 26, F);
+        wk.forEach((dt, i) => {
+          const x = M + nameW + i * colW, list = shiftsOf(st.id, dt), kind = SHARE.kinds.find(k => k.k === shiftKind(list));
+          box(x, y, colW, rh, kind.fill);
+          if (!list.length) return;
+          const notes = list.map(s => s.note).filter(Boolean).join("・"), lines = list.length + (notes ? 0.8 : 0);
+          let ty = y + rh / 2 - (lines - 1) * lineH / 2;
+          c.fillStyle = C.ink; c.textAlign = "center";
+          for (const s of list) { const sp = span(s); fitText(c, `${hm(s.start)}〜${sp && sp.b > 1440 ? "翌" : ""}${hm(s.end)}`, x + colW / 2, ty, colW - 12, 600, 24, F); ty += lineH; }
+          if (notes) { c.fillStyle = C.note; fitText(c, notes, x + colW / 2, ty - lineH * 0.25, colW - 12, 400, 16, F); }
+        });
+        y += rh;
+      }
+      y += gap;
+    }
+    // 注意書きと凡例
+    c.fillStyle = C.muted; c.textAlign = "left"; c.font = `400 22px ${F}`;
+    c.fillText("各自、勤務日・勤務時間をご確認ください。変更がある場合は個別に共有します。", M, y - 4);
+    let lx = M + 6; const ly = y + 40;
+    for (const k of SHARE.kinds) {
+      c.fillStyle = k.fill; c.fillRect(lx, ly - 13, 26, 26); c.strokeStyle = C.line; c.lineWidth = 2; c.strokeRect(lx, ly - 13, 26, 26);
+      c.fillStyle = C.ink; c.font = `500 22px ${F}`; c.fillText(k.label, lx + 36, ly); lx += 36 + c.measureText(k.label).width + 40;
+    }
+    pages.push(cv);
   });
 }
 // 希望シフト表
@@ -797,16 +895,18 @@ function pdfErrText(e) {
     default: return "PDF を保存できませんでした。もう一度お試しください。";
   }
 }
-async function savePdf() {
+async function savePdf(kind) {
   if (S.pdfBusy) return;
   if (!window.jspdf || !window.jspdf.jsPDF) { toast("PDF を作る部品を読み込めませんでした。ページを開き直してください。", true); return; }
   S.pdfBusy = true; render();
   try {
-    try { await Promise.all([document.fonts.load(`700 30px "Zen Kaku Gothic New"`, "希望"), document.fonts.load(`400 26px "Zen Kaku Gothic New"`, "希望"), document.fonts.load(`600 26px "IBM Plex Mono"`, "0")]); } catch {}
-    const pages = []; drawShiftPages(pages); drawReqPages(pages);
+    try { await Promise.all([document.fonts.load(`700 30px "Zen Kaku Gothic New"`, "希望"), document.fonts.load(`500 26px "Zen Kaku Gothic New"`, "希望"), document.fonts.load(`400 26px "Zen Kaku Gothic New"`, "希望"), document.fonts.load(`600 26px "IBM Plex Mono"`, "0")]); } catch {}
+    const pages = [];
+    if (kind === "req") drawReqPages(pages); else drawSharePages(pages);
     const pdf = new window.jspdf.jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
     pages.forEach((cv, i) => { if (i) pdf.addPage(); pdf.addImage(cv.toDataURL("image/png"), "PNG", 0, 0, 297, 210, undefined, "FAST"); });
-    downloadBlob(pdf.output("blob"), `シフト表_${curYm()}.pdf`);
+    const f = monthFirst(), store = (S.settings.storeName || "").replace(/[\\/:*?"<>|\s]+/g, "");
+    downloadBlob(pdf.output("blob"), kind === "req" ? `希望シフト_${curYm()}.pdf` : `${store ? store + "_" : ""}${f.getFullYear()}年${f.getMonth() + 1}月シフト.pdf`);
     S.pdfBusy = false;
     toast("PDF を保存しました");
   } catch (e) {
@@ -1040,7 +1140,7 @@ function dbErrText(e) {
 }
 async function write(fn, ok) { if (!S.db) { toast("シフトデータに接続できていないため保存できません。", true); return false; } try { await fn(); if (ok) toast(ok); return true; } catch (e) { toast(dbErrText(e), true); return false; } }
 
-function setSel(ds) { const prevYm = curYm(); S.sel = ds; if (curYm() !== prevYm) { subscribeMonth(); if (!S.req.dirty) loadReqDraft(); } }
+function setSel(ds) { const prevYm = curYm(); if (ds !== S.sel) S.dmDraft = null; S.sel = ds; if (curYm() !== prevYm) { subscribeMonth(); if (!S.req.dirty) loadReqDraft(); } }
 function moveMonth(n) { const f = monthFirst(), t = new Date(f.getFullYear(), f.getMonth() + n, 1), td = new Date(); setSel(ymOf(t) === ymOf(td) ? ymd(td) : ymd(t)); S.req.dirty = false; loadReqDraft(); }
 
 function loadReqDraft() {
@@ -1098,7 +1198,12 @@ const A = {
     const ok = await write(() => S.db.doc("settings/staffing").set({ byDow, updatedAt: Date.now() }), "必要人数を保存しました");
     if (ok) S.need = null;
   },
-  pdf() { savePdf(); return true; },
+  pdf(t) { savePdf(t.dataset.v === "req" ? "req" : "share"); return true; },
+  async dmSave() {
+    const text = String(S.dmDraft ?? S.dayMemos[S.sel] ?? "").trim().slice(0, 40);
+    const ok = await write(() => S.db.doc("settings/dayMemos").set({ byDate: { [S.sel]: text } }, { merge: true }), text ? "店舗メモを保存しました" : "店舗メモを消しました");
+    if (ok) S.dmDraft = null;
+  },
   async reqSubmit() {
     const r = S.req; if (!r.staffId) return;
     for (const k of Object.keys(r.days)) { const v = r.days[k]; if (v.k === "part" && (!v.start || !v.end)) { toast(`${Number(k)}日の △ に時間を入れてください。`, true); return; } if (v.k !== "part") { delete v.start; delete v.end; } }
@@ -1233,6 +1338,8 @@ function startData() {
   }
   unsubs.push(db.doc("settings/staffing").onSnapshot(snap => { S.staffing = snap.exists && snap.data().byDow ? { byDow: snap.data().byDow } : { byDow: {} }; render(); }, onDbErr));
   unsubs.push(db.doc("settings/main").onSnapshot(snap => { if (snap.exists) S.settings = { ...S.settings, ...snap.data() }; render(); }, onDbErr));
+  // 日ごとの店舗メモ（PDF の「店舗メモ」行に出す）。settings/dayMemos.byDate["YYYY-MM-DD"]
+  unsubs.push(db.doc("settings/dayMemos").onSnapshot(snap => { S.dayMemos = (snap.exists && snap.data().byDate) || {}; render(); }, onDbErr));
   subscribeMonth();
   render();
 }
