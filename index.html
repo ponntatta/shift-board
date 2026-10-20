@@ -467,7 +467,7 @@ function renderCal() {
   return `<div class="cal-layout">
     <section class="panel">
       <div class="toolbar">${nav}
-        <div class="row"><div class="seg" role="group" aria-label="表示切り替え"><button id="mode-month" data-act="mode" data-v="month" aria-pressed="${S.calMode === "month"}">月</button><button id="mode-week" data-act="mode" data-v="week" aria-pressed="${S.calMode === "week"}">週（シフト表）</button></div>${S.staff.length ? pdfButton("cal") : ""}</div>
+        <div class="row"><div class="seg" role="group" aria-label="表示切り替え"><button id="mode-month" data-act="mode" data-v="month" aria-pressed="${S.calMode === "month"}">月</button><button id="mode-week" data-act="mode" data-v="week" aria-pressed="${S.calMode === "week"}">週（シフト表）</button></div>${S.staff.length ? pdfButton("cal") + pdfMineButton() : ""}</div>
       </div>
       ${S.calMode === "month" ? monthGrid() : weekTable()}
     </section>
@@ -710,6 +710,14 @@ function pdfButton(where) {
   const label = where === "req" ? "希望を PDF で保存" : "シフト表を PDF で保存";
   return `<button class="btn small" id="pdf-${where}" data-act="pdf" data-v="${where}" ${S.pdfBusy ? "disabled" : ""}>${S.pdfBusy ? "PDF を作成中…" : label}</button>`;
 }
+// 1 人分のシフト表。スタッフは自分の分、店長は選んだ人の分
+const mineWho = () => S.role === "member" ? S.me : (staffById(S.pdfWho) ? S.pdfWho : "");
+function pdfMineButton() {
+  if (S.role === "member") return S.me ? `<button class="btn small" id="pdf-mine" data-act="pdf" data-v="mine" ${S.pdfBusy ? "disabled" : ""}>${S.pdfBusy ? "PDF を作成中…" : "自分のシフトだけ PDF で保存"}</button>` : "";
+  if (!S.admin) return "";
+  const who = mineWho();
+  return `<select id="pdf-who" data-bind="pdfWho" aria-label="1人分の PDF を作るスタッフ"><option value="">1人分の PDF…</option>${S.staff.map(st => `<option value="${st.id}" ${st.id === who ? "selected" : ""}>${esc(st.name)}</option>`).join("")}</select>${who ? `<button class="btn small" id="pdf-mine" data-act="pdf" data-v="mine" ${S.pdfBusy ? "disabled" : ""}>${S.pdfBusy ? "PDF を作成中…" : esc(nameOf(who)) + "さんの分を PDF で保存"}</button>` : ""}`;
+}
 const PDF = {
   W: 2480, H: 1754, M: 90,
   F: '"Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", sans-serif', MONO: '"IBM Plex Mono", Consolas, monospace',
@@ -890,6 +898,53 @@ function drawSharePages(pages) {
     pages.push(cv);
   });
 }
+// 1 人分: 月曜はじまりのカレンダーに、その人の勤務だけを書く
+function drawMinePages(pages, sid) {
+  const W = PDF.W, H = PDF.H, M = 80, F = PDF.F, C = SHARE;
+  const first = monthFirst(), y0 = first.getFullYear(), m0 = first.getMonth(), dim = new Date(y0, m0 + 1, 0).getDate();
+  const lead = (first.getDay() + 6) % 7, rows = Math.ceil((lead + dim) / 7);
+  const mine = S.shifts.filter(s => s.staffId === sid && s.date.startsWith(curYm())).sort((a, b) => a.date.localeCompare(b.date) || byStart(a, b));
+  const days = new Set(mine.map(s => s.date)).size;
+  const work = mine.reduce((a, s) => { const sp = span(s); return a + (sp ? Math.max(0, sp.b - sp.a - brkOf(s)) : 0); }, 0);
+  const cv = document.createElement("canvas"); cv.width = W; cv.height = H; const c = cv.getContext("2d");
+  c.fillStyle = "#FFFFFF"; c.fillRect(0, 0, W, H); c.textBaseline = "middle";
+  const store = S.settings.storeName ? `${S.settings.storeName}｜` : "";
+  c.fillStyle = C.navy; c.textAlign = "left"; c.font = `700 44px ${F}`;
+  c.fillText(`${store}${y0}年${m0 + 1}月　${nameOf(sid)}さんのシフト`, M, M + 24);
+  c.fillStyle = C.muted; c.font = `500 28px ${F}`; c.textAlign = "right";
+  c.fillText(`勤務 ${days} 日・合計 ${Math.floor(work / 60)} 時間${work % 60 ? ` ${work % 60} 分` : ""}（休憩を除く）`, W - M, M + 24);
+  const top = M + 80, headH = 56, footH = 80, colW = (W - 2 * M) / 7, rowH = (H - top - headH - footH - M) / rows;
+  const box = (x, yy, w, h, fill) => { c.fillStyle = fill; c.fillRect(x, yy, w, h); c.strokeStyle = C.line; c.lineWidth = 2; c.strokeRect(x, yy, w, h); };
+  ["月", "火", "水", "木", "金", "土", "日"].forEach((w, i) => {
+    box(M + i * colW, top, colW, headH, i === 6 ? C.sun : i === 5 ? C.sat : C.head);
+    c.fillStyle = "#FFFFFF"; c.textAlign = "center"; c.font = `500 26px ${F}`; c.fillText(w, M + (i + 0.5) * colW, top + headH / 2);
+  });
+  for (let i = 0; i < rows * 7; i++) {
+    const d = i - lead + 1, x = M + (i % 7) * colW, y = top + headH + Math.floor(i / 7) * rowH;
+    if (d < 1 || d > dim) { box(x, y, colW, rowH, "#F4F5F7"); continue; }
+    const dt = new Date(y0, m0, d), ds = ymd(dt), list = mine.filter(s => s.date === ds), hol = jpHoliday(dt), dow = dt.getDay();
+    box(x, y, colW, rowH, SHARE.kinds.find(k => k.k === shiftKind(list)).fill);
+    c.textAlign = "left"; c.fillStyle = dow === 0 || hol ? C.sun : dow === 6 ? C.sat : C.ink; c.font = `700 28px ${F}`;
+    c.fillText(String(d), x + 14, y + 26);
+    const memo = [hol, S.dayMemos[ds]].filter(Boolean).join(" ");
+    if (memo) { c.fillStyle = C.muted; fitText(c, memo, x + 56, y + 26, colW - 68, 500, 22, F); }
+    if (!list.length) continue;
+    const notes = list.map(s => s.note).filter(Boolean).join("・"), lh = 34, n = list.length + (notes ? 0.8 : 0);
+    let ty = y + 26 + (rowH - 26) / 2 - (n - 1) * lh / 2;
+    c.textAlign = "center"; c.fillStyle = C.ink;
+    for (const s of list) { const sp = span(s); fitText(c, `${hm(s.start)}〜${sp && sp.b > 1440 ? "翌" : ""}${hm(s.end)}`, x + colW / 2, ty, colW - 16, 700, 30, F); ty += lh; }
+    if (notes) { c.fillStyle = C.note; fitText(c, notes, x + colW / 2, ty - lh * 0.1, colW - 16, 500, 22, F); }
+  }
+  const fy = H - M - footH / 2 + 10;
+  c.fillStyle = C.muted; c.textAlign = "left"; c.font = `400 22px ${F}`;
+  const now = new Date(); c.fillText(`${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()} ${pad(now.getHours())}:${pad(now.getMinutes())} 時点。変更があるときは、シフトボードで最新の内容を確認してください。`, M, fy - 22);
+  let lx = M + 6; const ly = fy + 20;
+  for (const k of SHARE.kinds) {
+    c.fillStyle = k.fill; c.fillRect(lx, ly - 13, 26, 26); c.strokeStyle = C.line; c.lineWidth = 2; c.strokeRect(lx, ly - 13, 26, 26);
+    c.fillStyle = C.ink; c.font = `500 22px ${F}`; c.fillText(k.label, lx + 36, ly); lx += 36 + c.measureText(k.label).width + 40;
+  }
+  pages.push(cv);
+}
 // 希望シフト表
 function drawReqPages(pages) {
   const C = PDF.C, rows = S.staff.map(st => ({ st, r: reqOf(st.id) }));
@@ -926,11 +981,13 @@ async function savePdf(kind) {
   try {
     try { await Promise.all([document.fonts.load(`700 30px "Zen Kaku Gothic New"`, "希望"), document.fonts.load(`500 26px "Zen Kaku Gothic New"`, "希望"), document.fonts.load(`400 26px "Zen Kaku Gothic New"`, "希望"), document.fonts.load(`600 26px "IBM Plex Mono"`, "0")]); } catch {}
     const pages = [];
-    if (kind === "req") drawReqPages(pages); else drawSharePages(pages);
+    const sid = kind === "mine" ? mineWho() : "";
+    if (kind === "mine" && !sid) throw new Error("no staff");
+    if (kind === "req") drawReqPages(pages); else if (kind === "mine") drawMinePages(pages, sid); else drawSharePages(pages);
     const pdf = new window.jspdf.jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
     pages.forEach((cv, i) => { if (i) pdf.addPage(); pdf.addImage(cv.toDataURL("image/png"), "PNG", 0, 0, 297, 210, undefined, "FAST"); });
     const f = monthFirst(), store = (S.settings.storeName || "").replace(/[\\/:*?"<>|\s]+/g, "");
-    downloadBlob(pdf.output("blob"), kind === "req" ? `希望シフト_${curYm()}.pdf` : `${store ? store + "_" : ""}${f.getFullYear()}年${f.getMonth() + 1}月シフト.pdf`);
+    downloadBlob(pdf.output("blob"), kind === "req" ? `希望シフト_${curYm()}.pdf` : kind === "mine" ? `${nameOf(sid).replace(/[\\/:*?"<>|\s]+/g, "")}_${f.getFullYear()}年${f.getMonth() + 1}月シフト.pdf` : `${store ? store + "_" : ""}${f.getFullYear()}年${f.getMonth() + 1}月シフト.pdf`);
     S.pdfBusy = false;
     toast("PDF を保存しました");
   } catch (e) {
@@ -1261,7 +1318,7 @@ const A = {
     const ok = await write(() => S.db.doc("settings/staffing").set({ byDow, updatedAt: Date.now() }), "必要人数を保存しました");
     if (ok) S.need = null;
   },
-  pdf(t) { savePdf(t.dataset.v === "req" ? "req" : "share"); return true; },
+  pdf(t) { const v = t.dataset.v; savePdf(v === "req" ? "req" : v === "mine" ? "mine" : "share"); return true; },
   async dmSave() {
     const text = String(S.dmDraft ?? S.dayMemos[S.sel] ?? "").trim().slice(0, 40);
     const ok = await write(() => S.db.doc("settings/dayMemos").set({ byDate: { [S.sel]: text } }, { merge: true }), text ? "店舗メモを保存しました" : "店舗メモを消しました");
