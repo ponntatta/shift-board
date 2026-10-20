@@ -945,7 +945,7 @@ function renderStaff() {
     if (S.admin) ctl = S.confirmDel === "st:" + st.id
       ? `<span class="row"><button class="btn small danger" id="sdel-yes-${st.id}" data-act="delStaff" data-id="${st.id}">削除する</button><button class="btn small" id="sdel-no-${st.id}" data-act="cancelDel">やめる</button></span>`
       : `<span class="row"><button class="btn small" id="sedit-${st.id}" data-act="editStaff" data-id="${st.id}">編集</button><button class="btn small" id="sask-${st.id}" data-act="askDel" data-id="st:${st.id}">削除</button></span>`;
-    return `<li><span class="dot" style="${colorVar(st)}"></span><span class="who">${esc(st.name)}</span>${ctl}${S.admin ? `<span class="meta">時給 ${wageOf(st) ? yen(wageOf(st)) : "未設定"}${emailOf(st) ? ` ・ ${esc(emailOf(st))}` : ""}</span>
+    return `<li${S.sf.id === st.id ? ` style="background:var(--accent-soft);border-radius:8px"` : ""}><span class="dot" style="${colorVar(st)}"></span><span class="who">${esc(st.name)}${S.sf.id === st.id ? `<span class="hint">　編集中</span>` : ""}</span>${ctl}${S.admin ? `<span class="meta">時給 ${wageOf(st) ? yen(wageOf(st)) : "未設定"}${emailOf(st) ? ` ・ ${esc(emailOf(st))}` : ""}</span>
       <span class="invite">${S.tokens[st.id]
         ? `<input id="inv-${st.id}" readonly value="${esc(inviteUrl(st.id))}" aria-label="${esc(st.name)}さんの招待リンク"><button class="btn small" id="invc-${st.id}" data-act="copyInvite" data-id="${st.id}">招待リンクをコピー</button><button class="btn small" id="invr-${st.id}" data-act="makeInvite" data-id="${st.id}">作り直す</button>`
         : `<button class="btn small" id="invm-${st.id}" data-act="makeInvite" data-id="${st.id}">招待リンクを作る</button>`}</span>` : ""}</li>`;
@@ -1211,7 +1211,13 @@ const A = {
     if (ok) r.dirty = false;
   },
   pickColor(t) { S.sf.color = Number(t.dataset.v); },
-  editStaff(t) { const st = staffById(t.dataset.id); if (st) S.sf = { id: st.id, name: st.name, wage: wageOf(st) ?? "", color: st.color || 0, email: emailOf(st) || "" }; },
+  editStaff(t) {
+    const st = staffById(t.dataset.id); if (!st) return;
+    S.sf = { id: st.id, name: st.name, wage: wageOf(st) ?? "", color: st.color || 0, email: emailOf(st) || "" };
+    // 狭い画面では編集欄が一覧のずっと下に出るので、そこまで移動して時給の欄を選んだ状態にする
+    setTimeout(() => { const el = document.getElementById("s-wage"); if (!el) return; el.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); el.focus({ preventScroll: true }); }, 0);
+    toast(`${st.name}さんを編集中です。時給などを直して「変更を保存」を押してください`);
+  },
   cancelStaff() { S.sf = { id: null, name: "", wage: "", color: (S.staff.length) % 8, email: "" }; },
   async delStaff(t) {
     S.confirmDel = null; const id = t.dataset.id;
