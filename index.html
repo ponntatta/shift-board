@@ -331,6 +331,7 @@ function calc(s) {
 }
 // 時給とメールは管理者だけが読める private/<staffId> に置く（古いデータは staff 側にある場合も読む）
 const wageOf = st => { const p = S.priv[st.id]; return p && p.wage != null ? p.wage : (st.wage ?? null); };
+const desiredOf = st => { const p = S.priv[st.id]; return p && p.desiredPay != null ? p.desiredPay : null; };
 const emailOf = st => { const p = S.priv[st.id]; return (p && p.email) || st.email || null; };
 const payOf = (c, wage) => { const w = Number(wage) || 0; return (c.work * w + c.night * w * 0.25 + c.over * w * 0.25) / 60; };
 // 休憩の決まり（お店の設定で変えられる）。「勤務が overMin 分を超えたら breakMin 分休憩」。初期値は労働基準法の最低ライン
@@ -357,7 +358,7 @@ const S = {
   tab: pref.get("tab", "cal"), calMode: pref.get("calMode", "month"), sel: ymd(now),
   form: blankForm(), confirmDel: null,
   req: { staffId: pref.get("me", ""), days: {}, note: "", dirty: false },
-  sf: { id: null, name: "", wage: "", color: 0, email: "" }, setf: null, priv: {},
+  sf: { id: null, name: "", wage: "", color: 0, email: "", desired: "" }, setf: null, priv: {},
   staffing: { byDow: {} }, need: null, needDow: 1, dayMemos: {}, dmDraft: null,
   auto: { skipPast: true, plan: null, running: false, msg: null },
   gcal: { who: null },
@@ -661,6 +662,17 @@ function renderReq() {
     : `<label class="f" style="min-width:12em">${S.admin ? "だれの希望" : "あなたの名前"}<select id="req-staff" data-bind="req.staffId"><option value="">選んでください</option>${S.staff.map(st => `<option value="${st.id}" ${st.id === r.staffId ? "selected" : ""}>${esc(st.name)}</option>`).join("")}</select></label>`}
     ${r.staffId ? (own ? `<span class="status done">提出済み ${new Date(own.updatedAt).getMonth() + 1}/${new Date(own.updatedAt).getDate()}</span>` : `<span class="status">未提出</span>`) : ""}${r.dirty ? `<span class="hint">未保存の変更があります</span>` : ""}</div>`;
   if (!r.staffId) return h + `<p class="hint">名前を選ぶと、日付をタップして希望を入力できます。</p></section>` + matrix();
+  // 曜日ごとの決まった希望（例: 月曜は 10:00〜17:00）をまとめて日付に当てはめる
+  const wk = r.weekly || {};
+  h += `<details class="weekly" ${r.weeklyOpen ?? !Object.keys(r.days).length ? "open" : ""} style="margin-bottom:14px;border:1px solid var(--line);border-radius:10px;padding:10px 12px">
+    <summary id="wk-summary" data-act="weeklyToggle" style="cursor:pointer;font-weight:700">曜日ごとにまとめて入力する</summary>
+    <p class="hint" style="margin:6px 0 10px">「月曜は 10:00〜17:00 なら入れる」のように曜日ごとに決めて、${first.getMonth() + 1}月の日付にまとめて当てはめます。当てはめたあと、日付をタップして 1 日ずつ直せます。決めた内容は次の月にも残ります。</p>
+    <div style="display:flex;flex-direction:column;gap:8px">${[1, 2, 3, 4, 5, 6, 0].map(dw => { const v = wk[dw] || {}; return `<div class="row" style="align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="width:2.2em;font-weight:700;color:${dw === 0 ? "var(--sun)" : dw === 6 ? "var(--sat)" : "var(--ink)"}">${WD[dw]}</span>
+      <select id="wk-k-${dw}" data-bind="req.weekly.${dw}.k" aria-label="${WD[dw]}曜日の希望"><option value="" ${!v.k ? "selected" : ""}>未定</option><option value="ok" ${v.k === "ok" ? "selected" : ""}>〇 終日OK</option><option value="part" ${v.k === "part" ? "selected" : ""}>△ 時間指定</option><option value="ng" ${v.k === "ng" ? "selected" : ""}>× 入れない</option></select>
+      ${v.k === "part" ? `<input type="time" id="wk-s-${dw}" data-bind="req.weekly.${dw}.start" value="${v.start || ""}" step="300" aria-label="${WD[dw]}曜日の開始"> 〜 <input type="time" id="wk-e-${dw}" data-bind="req.weekly.${dw}.end" value="${v.end || ""}" step="300" aria-label="${WD[dw]}曜日の終了">` : ""}</div>`; }).join("")}</div>
+    <div class="row" style="margin-top:10px;flex-wrap:wrap"><button type="button" class="btn small primary" id="wk-apply-empty" data-act="weeklyApply" data-v="empty">まだ決めていない日に当てはめる</button><button type="button" class="btn small" id="wk-apply-all" data-act="weeklyApply" data-v="all">すべての日に当てはめる（上書き）</button></div>
+  </details>`;
   h += `<div class="legend" style="margin-bottom:10px"><span>日付をタップするたびに切り替わります:</span><span class="ok">〇 終日OK</span><span class="part">△ 時間指定</span><span class="ng">× 入れない</span><span class="muted">空白 未定</span></div>`;
   h += `<div class="reqgrid">` + WD.map((w, i) => `<div class="hint" style="text-align:center;color:${i === 0 ? "var(--sun)" : i === 6 ? "var(--sat)" : ""}">${w}</div>`).join("");
   for (let i = 0; i < first.getDay(); i++) h += `<div class="rday blank"></div>`;
@@ -928,6 +940,13 @@ async function savePdf(kind) {
 }
 
 /* 集計 */
+// 給料の表の「希望の月収」と「希望との差」（目安 − 希望。足りないときは赤）
+function desiredCells(r) {
+  const want = desiredOf(r.st);
+  if (want == null) return `<td><span class="muted">未設定</span></td><td></td>`;
+  const diff = Math.round(r.pay - want);
+  return `<td>${yen(want)}</td><td style="color:${diff < 0 ? "var(--ng)" : "inherit"}">${diff < 0 ? "−" + yen(-diff) + "（不足）" : "+" + yen(diff)}</td>`;
+}
 function renderSum() {
   const list = shiftsInMonth(), rows = [];
   for (const st of S.staff) {
@@ -941,9 +960,9 @@ function renderSum() {
     <div class="kpis"><div class="kpi"><div class="l">シフト件数</div><div class="v num">${list.length}</div></div><div class="kpi"><div class="l">総実働時間</div><div class="v num">${hrs(tot.work)}</div></div>${pay ? `<div class="kpi"><div class="l">人件費の目安</div><div class="v num">${yen(tot.pay)}</div></div>` : ""}</div>`;
   if (!rows.length) h += `<p class="muted">スタッフを登録してシフトを入れると、ここに一人ずつの勤務時間${pay ? "と給料の目安" : ""}が出ます。</p>`;
   else {
-    h += `<div class="scroll"><table class="sum"><thead><tr><th class="name">スタッフ</th><th>出勤日数</th><th>実働</th><th>うち深夜</th><th>8時間超</th>${pay ? "<th>時給</th><th>給料の目安</th>" : ""}</tr></thead><tbody>`;
-    h += rows.map(r => `<tr><td class="name"><span class="dot" style="${colorVar(r.st)}"></span>${esc(r.st.name)}<div class="hbar" style="${colorVar(r.st)};width:${r.work / max * 100}%"></div></td><td>${r.days}日</td><td>${hrs(r.work)}</td><td>${hrs(r.night)}</td><td>${hrs(r.over)}</td>${pay ? `<td>${wageOf(r.st) ? yen(wageOf(r.st)) : `<span class="muted">未設定</span>`}</td><td>${yen(r.pay)}</td>` : ""}</tr>`).join("");
-    h += `</tbody><tfoot><tr><td class="name">合計</td><td>${tot.days}日</td><td>${hrs(tot.work)}</td><td>${hrs(tot.night)}</td><td>${hrs(tot.over)}</td>${pay ? `<td></td><td>${yen(tot.pay)}</td>` : ""}</tr></tfoot></table></div>`;
+    h += `<div class="scroll"><table class="sum"><thead><tr><th class="name">スタッフ</th><th>出勤日数</th><th>実働</th><th>うち深夜</th><th>8時間超</th>${pay ? "<th>時給</th><th>給料の目安</th><th>希望の月収</th><th>希望との差</th>" : ""}</tr></thead><tbody>`;
+    h += rows.map(r => `<tr><td class="name"><span class="dot" style="${colorVar(r.st)}"></span>${esc(r.st.name)}<div class="hbar" style="${colorVar(r.st)};width:${r.work / max * 100}%"></div></td><td>${r.days}日</td><td>${hrs(r.work)}</td><td>${hrs(r.night)}</td><td>${hrs(r.over)}</td>${pay ? `<td>${wageOf(r.st) ? yen(wageOf(r.st)) : `<span class="muted">未設定</span>`}</td><td>${yen(r.pay)}</td>${desiredCells(r)}` : ""}</tr>`).join("");
+    h += `</tbody><tfoot><tr><td class="name">合計</td><td>${tot.days}日</td><td>${hrs(tot.work)}</td><td>${hrs(tot.night)}</td><td>${hrs(tot.over)}</td>${pay ? `<td></td><td>${yen(tot.pay)}</td><td></td><td></td>` : ""}</tr></tfoot></table></div>`;
     if (pay) h += `<p class="hint">時給と給料は管理者のあなたにだけ表示されます。給料の目安 = 実働 × 時給 ＋ 深夜（22時〜翌5時）の割増 25% ＋ 1 日 8 時間を超えた分の割増 25%。実働は、勤務時間から休憩を引いた時間です（休憩はお店の設定の決まり: ${esc(breakRulesText())}。手で変えたシフトはその分数）。交通費・週 40 時間超の残業・税金は含みません。休憩は深夜以外の時間に取った前提で計算しています。</p>`;
   }
   return h + `</section><section class="panel">${gcalBox("month", list)}</section>`;
@@ -957,7 +976,7 @@ function renderStaff() {
     if (S.admin) ctl = S.confirmDel === "st:" + st.id
       ? `<span class="row"><button class="btn small danger" id="sdel-yes-${st.id}" data-act="delStaff" data-id="${st.id}">削除する</button><button class="btn small" id="sdel-no-${st.id}" data-act="cancelDel">やめる</button></span>`
       : `<span class="row"><button class="btn small" id="sedit-${st.id}" data-act="editStaff" data-id="${st.id}">編集</button><button class="btn small" id="sask-${st.id}" data-act="askDel" data-id="st:${st.id}">削除</button></span>`;
-    return `<li${S.sf.id === st.id ? ` style="background:var(--accent-soft);border-radius:8px"` : ""}><span class="dot" style="${colorVar(st)}"></span><span class="who">${esc(st.name)}${S.sf.id === st.id ? `<span class="hint">　編集中</span>` : ""}</span>${ctl}${S.admin ? `<span class="meta">時給 ${wageOf(st) ? yen(wageOf(st)) : "未設定"}${emailOf(st) ? ` ・ ${esc(emailOf(st))}` : ""}</span>
+    return `<li${S.sf.id === st.id ? ` style="background:var(--accent-soft);border-radius:8px"` : ""}><span class="dot" style="${colorVar(st)}"></span><span class="who">${esc(st.name)}${S.sf.id === st.id ? `<span class="hint">　編集中</span>` : ""}</span>${ctl}${S.admin ? `<span class="meta">時給 ${wageOf(st) ? yen(wageOf(st)) : "未設定"}${desiredOf(st) ? ` ・ 希望 月${yen(desiredOf(st))}` : ""}${emailOf(st) ? ` ・ ${esc(emailOf(st))}` : ""}</span>
       <span class="invite">${S.tokens[st.id]
         ? `<input id="inv-${st.id}" readonly value="${esc(inviteUrl(st.id))}" aria-label="${esc(st.name)}さんの招待リンク"><button class="btn small" id="invc-${st.id}" data-act="copyInvite" data-id="${st.id}">招待リンクをコピー</button><button class="btn small" id="invr-${st.id}" data-act="makeInvite" data-id="${st.id}">作り直す</button>`
         : `<button class="btn small" id="invm-${st.id}" data-act="makeInvite" data-id="${st.id}">招待リンクを作る</button>`}</span>` : ""}</li>`;
@@ -970,8 +989,10 @@ function renderStaff() {
         <label class="f full">名前<input id="s-name" data-bind="sf.name" value="${esc(f.name)}" required maxlength="20" placeholder="例: 山田"></label>
         <label class="f">時給（円）<input type="number" id="s-wage" data-bind="sf.wage" value="${esc(f.wage)}" min="0" step="1" inputmode="numeric" placeholder="例: 1000"></label>
         <label class="f">メール（任意）<input type="email" id="s-email" data-bind="sf.email" value="${esc(f.email)}" placeholder="連絡用（任意）"></label>
+        <label class="f">希望の月収（円・任意）<input type="number" id="s-desired" data-bind="sf.desired" value="${esc(f.desired ?? "")}" min="0" step="1" inputmode="numeric" placeholder="例: 50000"></label>
+        <span></span>
         <div class="f full">色<div class="swatches" role="group" aria-label="色">${[...Array(8)].map((_, i) => `<button type="button" class="sw" id="sw-${i}" style="--c:var(--c${i})" aria-pressed="${f.color === i}" aria-label="色 ${i + 1}" data-act="pickColor" data-v="${i}"></button>`).join("")}</div></div>
-        <p class="hint full">時給とメールアドレスは管理者のあなただけが見られる場所に保存されます。スタッフの画面には出ません。</p>
+        <p class="hint full">時給・メールアドレス・希望の月収は管理者のあなただけが見られる場所に保存されます。スタッフの画面には出ません。希望の月収は「勤務時間・給料」タブで給料の目安と並べて表示します。</p>
         <div class="row full"><button class="btn primary" id="s-submit" type="submit">${f.id ? "変更を保存" : "追加する"}</button>${f.id ? `<button class="btn" type="button" id="s-cancel" data-act="cancelStaff">やめる</button>` : ""}</div>
       </form></section>`;
     const sf = S.setf || { ...S.settings };
@@ -1174,6 +1195,20 @@ function moveMonth(n) { const f = monthFirst(), t = new Date(f.getFullYear(), f.
 function loadReqDraft() {
   const r = S.req, doc = r.staffId ? reqOf(r.staffId) : null;
   r.days = doc && doc.days ? JSON.parse(JSON.stringify(doc.days)) : {}; r.note = (doc && doc.note) || ""; r.dirty = false;
+  // 曜日ごとの希望: その月に出したもの → この端末で前に決めたもの の順に使う
+  let saved = null; try { saved = JSON.parse(pref.get("weekly." + r.staffId, "null")); } catch {}
+  r.weekly = doc && doc.weekly ? JSON.parse(JSON.stringify(doc.weekly)) : (saved && typeof saved === "object" ? saved : {});
+  r.weeklyOpen = undefined;
+}
+// 曜日ごとの希望から、未定・時間のない行を除いた保存用の形
+function cleanWeekly(w) {
+  const out = {};
+  for (const [dw, v] of Object.entries(w || {})) {
+    if (!v || !v.k) continue;
+    if (v.k === "part") { if (v.start && v.end) out[dw] = { k: "part", start: v.start, end: v.end }; }
+    else out[dw] = { k: v.k };
+  }
+  return out;
 }
 
 const A = {
@@ -1235,8 +1270,25 @@ const A = {
   async reqSubmit() {
     const r = S.req; if (!r.staffId) return;
     for (const k of Object.keys(r.days)) { const v = r.days[k]; if (v.k === "part" && (!v.start || !v.end)) { toast(`${Number(k)}日の △ に時間を入れてください。`, true); return; } if (v.k !== "part") { delete v.start; delete v.end; } }
-    const ok = await write(() => S.db.doc(`requests/${r.staffId}_${curYm()}`).set({ staffId: r.staffId, month: curYm(), days: r.days, note: r.note.trim(), updatedAt: Date.now(), by: S.authUser ? S.authUser.uid : null }), "希望シフトを提出しました");
-    if (ok) r.dirty = false;
+    const weekly = cleanWeekly(r.weekly);
+    const ok = await write(() => S.db.doc(`requests/${r.staffId}_${curYm()}`).set({ staffId: r.staffId, month: curYm(), days: r.days, weekly, note: r.note.trim(), updatedAt: Date.now(), by: S.authUser ? S.authUser.uid : null }), "希望シフトを提出しました");
+    if (ok) { r.dirty = false; pref.set("weekly." + r.staffId, JSON.stringify(weekly)); }
+  },
+  weeklyToggle(t, e) { e.preventDefault(); const det = t.closest("details"); S.req.weeklyOpen = !(det && det.open); },
+  weeklyApply(t) {
+    const r = S.req, mode = t.dataset.v, wk = r.weekly || {}, first = monthFirst(), dim = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+    for (const [dw, v] of Object.entries(wk)) if (v && v.k === "part" && (!v.start || !v.end)) return toast(`${WD[dw]}曜日の △ に時間を入れてください。`, true);
+    if (!Object.values(wk).some(v => v && v.k)) return toast("曜日ごとの希望を 1 つ以上選んでください。", true);
+    let n = 0;
+    for (let d = 1; d <= dim; d++) {
+      const key = pad(d), v = wk[new Date(first.getFullYear(), first.getMonth(), d).getDay()];
+      if (!v || !v.k) continue;
+      if (mode === "empty" && r.days[key] && r.days[key].k) continue;
+      r.days[key] = v.k === "part" ? { k: "part", start: v.start, end: v.end } : { k: v.k }; n++;
+    }
+    r.dirty = true; r.weeklyOpen = true;
+    pref.set("weekly." + r.staffId, JSON.stringify(cleanWeekly(wk)));
+    toast(n ? `${n} 日に当てはめました。内容を確かめて「希望を提出する」を押してください` : "当てはめる日がありませんでした（すでに全部決まっています）");
   },
   pickColor(t) { S.sf.color = Number(t.dataset.v); },
   brAdd() { const br = setfDraft().br, last = br[br.length - 1]; br.push({ h: last ? String(Number(last.h || 0) + 2) : "6", b: last ? String(Number(last.b || 0) + 15) : "45" }); },
@@ -1249,12 +1301,12 @@ const A = {
   },
   editStaff(t) {
     const st = staffById(t.dataset.id); if (!st) return;
-    S.sf = { id: st.id, name: st.name, wage: wageOf(st) ?? "", color: st.color || 0, email: emailOf(st) || "" };
+    S.sf = { id: st.id, name: st.name, wage: wageOf(st) ?? "", color: st.color || 0, email: emailOf(st) || "", desired: desiredOf(st) ?? "" };
     // 狭い画面では編集欄が一覧のずっと下に出るので、そこまで移動して時給の欄を選んだ状態にする
     setTimeout(() => { const el = document.getElementById("s-wage"); if (!el) return; el.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); el.focus({ preventScroll: true }); }, 0);
     toast(`${st.name}さんを編集中です。時給などを直して「変更を保存」を押してください`);
   },
-  cancelStaff() { S.sf = { id: null, name: "", wage: "", color: (S.staff.length) % 8, email: "" }; },
+  cancelStaff() { S.sf = { id: null, name: "", wage: "", color: (S.staff.length) % 8, email: "", desired: "" }; },
   async delStaff(t) {
     S.confirmDel = null; const id = t.dataset.id;
     await write(async () => {
@@ -1305,7 +1357,7 @@ document.addEventListener("change", e => {
   setBind(b, t.type === "checkbox" ? t.checked : t.value);
   if ((b === "form.start" || b === "form.end") && !S.form.breakTouched) S.form.breakMin = suggestBreak(S.form.start, S.form.end);
   if (b === "req.staffId") { pref.set("me", S.req.staffId); loadReqDraft(); }
-  if (b.startsWith("req.days")) S.req.dirty = true;
+  if (b.startsWith("req.days") || b.startsWith("req.weekly")) S.req.dirty = true;
   if (b === "gcal.who") { S.gcal.confirm = null; S.gcal.msg = null; }
   if (t.tagName === "SELECT" || t.type === "checkbox" || t.type === "time" || b === "form.breakMin" || b.startsWith("need.")) render();
 });
@@ -1327,14 +1379,14 @@ document.addEventListener("submit", async e => {
     const f = S.sf, name = f.name.trim();
     if (!name) return toast("名前を入れてください。", true);
     const data = { name, color: f.color, order: f.id ? (staffById(f.id)?.order ?? Date.now()) : Date.now() };
-    const priv = { wage: f.wage === "" ? null : Math.max(0, Math.round(Number(f.wage))), email: f.email.trim() || null };
+    const priv = { wage: f.wage === "" ? null : Math.max(0, Math.round(Number(f.wage))), email: f.email.trim() || null, desiredPay: String(f.desired ?? "").trim() === "" ? null : Math.max(0, Math.round(Number(f.desired))) };
     const ok = await write(async () => {
       const ref = f.id ? S.db.doc("staff/" + f.id) : S.db.collection("staff").doc();
       await ref.set(data);
       await S.db.doc("private/" + ref.id).set(priv);
       if (!f.id) await S.db.doc("staffTokens/" + ref.id).set({ token: newToken() });
     }, f.id ? "スタッフを更新しました" : `${name}さんを追加しました。下の一覧から招待リンクをコピーして送れます`);
-    if (ok) S.sf = { id: null, name: "", wage: "", color: (S.staff.length + (f.id ? 0 : 1)) % 8, email: "" };
+    if (ok) S.sf = { id: null, name: "", wage: "", color: (S.staff.length + (f.id ? 0 : 1)) % 8, email: "", desired: "" };
   } else if (kind === "settings") {
     const f = S.setf || S.settings;
     const oMin = hmToMin(hoursToHm(f.open)), cMinRaw = hmToMin(hoursToHm(f.close));
