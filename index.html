@@ -381,6 +381,13 @@ const byStart = (a, b) => (toMin(a.start) - toMin(b.start)) || nameOf(a.staffId)
 const shiftsOn = ds => S.shifts.filter(s => s.date === ds).sort(byStart);
 const shiftsInMonth = () => { const k = curYm(); return S.shifts.filter(s => s.date.startsWith(k)).sort((a, b) => a.date.localeCompare(b.date) || byStart(a, b)); };
 const reqOf = staffId => S.reqs.find(r => r.staffId === staffId && r.month === curYm());
+// 希望の「1 日最低何時間」（分）と「週に何日休みたいか」。未指定は 0 / null
+const minWorkOf = staffId => { const r = reqOf(staffId); return Math.round((Number(r && r.minHours) || 0) * 60); };
+const offWeekOf = staffId => { const r = reqOf(staffId), n = r && r.offPerWeek; return n === "" || n == null || isNaN(Number(n)) ? null : Number(n); };
+// 月曜はじまりの週（ds を含む週の月〜日の日付）
+const monWeek = ds => { const d = parseYmd(ds), m = addDays(d, -((d.getDay() + 6) % 7)); return [...Array(7)].map((_, i) => ymd(addDays(m, i))); };
+const workDaysInWeek = (staffId, ds, shifts) => { const wk = new Set(monWeek(ds)); return new Set((shifts || S.shifts).filter(s => s.staffId === staffId && wk.has(s.date)).map(s => s.date)).size; };
+const prefText = r => [r && Number(r.minHours) ? `1日${Number(r.minHours)}時間以上` : "", r && r.offPerWeek !== "" && r.offPerWeek != null ? `週${r.offPerWeek}日休み希望` : ""].filter(Boolean).join("・");
 function reqsOnDay(ds) {
   const key = ds.slice(8, 10), out = [];
   for (const r of S.reqs) { if (r.month !== ds.slice(0, 7)) continue; const v = r.days?.[key]; if (v && v.k && staffById(r.staffId)) out.push({ staffId: r.staffId, ...v }); }
@@ -594,7 +601,9 @@ function renderDay() {
       if (S.admin) ctl = S.confirmDel === s.id
         ? `<span class="row"><button class="btn small danger" id="del-yes-${s.id}" data-act="delshift" data-id="${s.id}">削除する</button><button class="btn small" id="del-no-${s.id}" data-act="cancelDel">やめる</button></span>`
         : `<span class="row"><button class="btn small" id="edit-${s.id}" data-act="editshift" data-id="${s.id}">編集</button><button class="btn small" id="askdel-${s.id}" data-act="askDel" data-id="${s.id}">削除</button></span>`;
-      return `<li><span class="dot" style="${colorVar(st)}"></span><span><span class="who">${esc(nameOf(s.staffId))}</span> <span class="mono">${s.start}–${s.end}</span></span>${ctl}
+      const mw = minWorkOf(s.staffId), sp = span(s), off = offWeekOf(s.staffId), wd = workDaysInWeek(s.staffId, s.date);
+      const warn = [mw && sp && sp.b - sp.a < mw ? `希望は1日${mw / 60}時間以上` : "", off != null && wd > 7 - off ? `この週は${wd}日勤務（希望は週${off}日休み＝${7 - off}日まで）` : ""].filter(Boolean);
+      return `<li><span class="dot" style="${colorVar(st)}"></span><span><span class="who">${esc(nameOf(s.staffId))}</span> <span class="mono">${s.start}–${s.end}</span></span>${ctl}${warn.length ? `<span class="meta need-ng">⚠ ${esc(warn.join("／"))}</span>` : ""}
         <span class="meta">休憩 ${brkOf(s)}分${s.breakAuto ? "（決まりどおり）" : ""} ・ 実働 <span class="num">${hrs(cc.work)}</span>${cc.night ? ` ・ 深夜 <span class="num">${hrs(cc.night)}</span>` : ""}${s.note ? `<br>${esc(s.note)}` : ""}</span></li>`;
     }).join("") + `</ul>`;
   }
@@ -716,6 +725,11 @@ function renderReq() {
       ${v.k === "part" ? `<input type="time" id="wk-s-${dw}" data-bind="req.weekly.${dw}.start" value="${v.start || ""}" step="300" aria-label="${WD[dw]}曜日の開始"> 〜 <input type="time" id="wk-e-${dw}" data-bind="req.weekly.${dw}.end" value="${v.end || ""}" step="300" aria-label="${WD[dw]}曜日の終了">` : ""}</div>`; }).join("")}</div>
     <div class="row" style="margin-top:10px;flex-wrap:wrap"><button type="button" class="btn small primary" id="wk-apply-empty" data-act="weeklyApply" data-v="empty">まだ決めていない日に当てはめる</button><button type="button" class="btn small" id="wk-apply-all" data-act="weeklyApply" data-v="all">すべての日に当てはめる（上書き）</button></div>
   </details>`;
+  const hOpts = [1, 2, 3, 4, 4.5, 5, 6, 7, 8];
+  h += `<div class="row" style="margin-bottom:14px;gap:12px;flex-wrap:wrap">
+    <label class="f" style="min-width:12em">1日に入るのは最低<select id="req-minh" data-bind="req.minHours"><option value="">指定なし</option>${hOpts.map(n => `<option value="${n}" ${Number(r.minHours) === n ? "selected" : ""}>${n}時間以上</option>`).join("")}</select></label>
+    <label class="f" style="min-width:12em">週の休み希望<select id="req-off" data-bind="req.offPerWeek"><option value="">指定なし</option>${[1, 2, 3, 4, 5, 6].map(n => `<option value="${n}" ${String(r.offPerWeek) === String(n) ? "selected" : ""}>週${n}日休みたい</option>`).join("")}</select></label>
+    <p class="hint" style="flex-basis:100%;margin:0">店長がシフトを組むときの目安になります。自動作成でも、この時間より短いシフトや、休みが足りなくなる入れ方はしません。次の月にも残ります。</p></div>`;
   h += `<div class="legend" style="margin-bottom:10px"><span>日付をタップするたびに切り替わります:</span><span class="ok">〇 終日OK</span><span class="part">△ 時間指定</span><span class="ng">× 入れない</span><span class="muted">空白 未定</span></div>`;
   h += `<div class="reqgrid">` + WD.map((w, i) => `<div class="hint" style="text-align:center;color:${i === 0 ? "var(--sun)" : i === 6 ? "var(--sat)" : ""}">${w}</div>`).join("");
   for (let i = 0; i < first.getDay(); i++) h += `<div class="rday blank"></div>`;
@@ -740,7 +754,7 @@ function matrix() {
   h += `</tr></thead><tbody>`;
   for (const st of S.staff) {
     const r = reqOf(st.id);
-    h += `<tr><th class="name"><span class="dot" style="${colorVar(st)}"></span>${esc(st.name)} ${r ? "" : `<span class="status">未提出</span>`}</th>`;
+    h += `<tr><th class="name"><span class="dot" style="${colorVar(st)}"></span>${esc(st.name)} ${r ? "" : `<span class="status">未提出</span>`}${prefText(r) ? `<br><span class="hint" style="font-weight:400">${esc(prefText(r))}</span>` : ""}</th>`;
     for (let d = 1; d <= dim; d++) { const v = r && r.days && r.days[pad(d)]; h += `<td class="${v ? v.k : ""}" title="${v && v.k === "part" ? `${v.start || ""}–${v.end || ""}` : ""}">${v ? MARK[v.k] || "" : ""}</td>`; }
     h += `</tr>`;
     if (r && r.note) h += `<tr><td colspan="${dim + 1}" style="text-align:left" class="hint">メモ: ${esc(r.note)}</td></tr>`;
@@ -1184,12 +1198,17 @@ function autoPlan() {
           const av = availOf(st.id, ds); if (!av) return;
           let a = Math.max(lo, av.a), b = Math.min(hi, av.b);
           if (!(a < seg.to && b > seg.from)) return;
-          if (b - a < 60) { b = Math.min(ssp.b, av.b, a + 60); if (b - a < 60) a = Math.max(ssp.a, av.a, b - 60); if (b - a < 60) return; }
+          // 短すぎる案は延ばす: 1 時間か、本人の希望する最低時間まで（希望のときは営業時間の中で延ばす）
+          const mw = minWorkOf(st.id), need = Math.max(60, mw), lim = mw > 60 ? [Math.max(av.a, Math.round(S.settings.open * 60)), Math.min(av.b, Math.max(Math.round(S.settings.close * 60), Math.round(S.settings.open * 60) + 60))] : [Math.max(ssp.a, av.a), Math.min(ssp.b, av.b)];
+          if (b - a < need) { b = Math.min(lim[1], a + need); if (b - a < need) a = Math.max(lim[0], b - need); if (b - a < need) return; }
           if (b - a > MAX_SHIFT) b = a + MAX_SHIFT; // 長すぎる分は切って、残りは別の人で埋める
           const mine = pool.filter(s => s.date === ds && s.staffId === st.id);
           if (mine.some(s => !s._new)) return; // すでに確定シフトがある日は増やさない
           const adj = mine.find(s => { const p = span(s); return p.b === a || p.a === b; });
           if (mine.length && !adj) return;
+          // 週の休み希望: その週の勤務日がもう上限なら、新しい日には入れない
+          const off = offWeekOf(st.id);
+          if (!mine.length && off != null && workDaysInWeek(st.id, ds, pool) >= 7 - off) return;
           if (mine.some(s => { const p = span(s); return p.a < b && p.b > a; })) return;
           // 同じ日の案とつながる場合は 1 つのシフトに延ばす（合計 9 時間まで）
           let na = a, nb = b;
@@ -1299,6 +1318,9 @@ function loadReqDraft() {
   let saved = null; try { saved = JSON.parse(pref.get("weekly." + r.staffId, "null")); } catch {}
   r.weekly = doc && doc.weekly ? JSON.parse(JSON.stringify(doc.weekly)) : (saved && typeof saved === "object" ? saved : {});
   r.weeklyOpen = undefined;
+  let pf = null; try { pf = JSON.parse(pref.get("prefs." + r.staffId, "null")); } catch {}
+  r.minHours = doc && doc.minHours != null ? String(doc.minHours || "") : (pf && pf.minHours) || "";
+  r.offPerWeek = doc && doc.offPerWeek != null ? String(doc.offPerWeek) : (pf && pf.offPerWeek) || "";
 }
 // 曜日ごとの希望から、未定・時間のない行を除いた保存用の形
 function cleanWeekly(w) {
@@ -1371,8 +1393,8 @@ const A = {
     const r = S.req; if (!r.staffId) return;
     for (const k of Object.keys(r.days)) { const v = r.days[k]; if (v.k === "part" && (!v.start || !v.end)) { toast(`${Number(k)}日の △ に時間を入れてください。`, true); return; } if (v.k !== "part") { delete v.start; delete v.end; } }
     const weekly = cleanWeekly(r.weekly);
-    const ok = await write(() => S.db.doc(`requests/${r.staffId}_${curYm()}`).set({ staffId: r.staffId, month: curYm(), days: r.days, weekly, note: r.note.trim(), updatedAt: Date.now(), by: S.authUser ? S.authUser.uid : null }), "希望シフトを提出しました");
-    if (ok) { r.dirty = false; pref.set("weekly." + r.staffId, JSON.stringify(weekly)); }
+    const ok = await write(() => S.db.doc(`requests/${r.staffId}_${curYm()}`).set({ staffId: r.staffId, month: curYm(), days: r.days, weekly, minHours: Number(r.minHours) || 0, offPerWeek: r.offPerWeek === "" || r.offPerWeek == null ? null : Number(r.offPerWeek), note: r.note.trim(), updatedAt: Date.now(), by: S.authUser ? S.authUser.uid : null }), "希望シフトを提出しました");
+    if (ok) { r.dirty = false; pref.set("weekly." + r.staffId, JSON.stringify(weekly)); pref.set("prefs." + r.staffId, JSON.stringify({ minHours: r.minHours || "", offPerWeek: r.offPerWeek ?? "" })); }
   },
   emptyToggle(t, e) { e.preventDefault(); const det = t.closest("details"); S.emptyOpen = !(det && det.open); },
   weeklyToggle(t, e) { e.preventDefault(); const det = t.closest("details"); S.req.weeklyOpen = !(det && det.open); },
@@ -1458,7 +1480,7 @@ document.addEventListener("change", e => {
   setBind(b, t.type === "checkbox" ? t.checked : t.value);
   if ((b === "form.start" || b === "form.end") && !S.form.breakTouched) S.form.breakMin = suggestBreak(S.form.start, S.form.end);
   if (b === "req.staffId") { pref.set("me", S.req.staffId); loadReqDraft(); }
-  if (b.startsWith("req.days") || b.startsWith("req.weekly")) S.req.dirty = true;
+  if (b.startsWith("req.days") || b.startsWith("req.weekly") || b === "req.minHours" || b === "req.offPerWeek") S.req.dirty = true;
   if (b === "gcal.who") { S.gcal.confirm = null; S.gcal.msg = null; }
   if (t.tagName === "SELECT" || t.type === "checkbox" || t.type === "time" || b === "form.breakMin" || b.startsWith("need.")) render();
 });
