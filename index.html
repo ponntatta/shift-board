@@ -375,7 +375,7 @@ function render() {
   const meName = S.role === "member" ? (staffById(S.me)?.name || "") : "";
   document.getElementById("acct").innerHTML = S.dbState === "loading" ? `<span class="role">読み込み中</span>`
     : S.admin ? `<span class="role admin">管理者</span><button class="btn small" id="logout" data-act="logout">ログアウト</button>`
-    : S.role === "member" ? `<span class="role">スタッフ${meName ? "：" + esc(meName) : ""}</span>`
+    : S.role === "member" ? `<span class="role">スタッフ${meName ? "：" + esc(meName) : ""}</span><button class="btn small" id="login" data-act="login" title="店長（管理者）の Google アカウントで入り直します">店長ログイン</button>`
     : S.authUser && !S.authUser.isAnonymous ? `<button class="btn small" id="logout" data-act="logout">ログアウト</button>` : "";
   const ready = S.dbState === "ready";
   const tabs = !ready ? [] : S.admin ? [TABS[0], ["reqcal", "希望カレンダー"], ...TABS.slice(1)] : TABS;
