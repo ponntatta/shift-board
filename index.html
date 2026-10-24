@@ -441,15 +441,26 @@ function openOn(ds) {
   const sg = shortages(ds); if (!sg.length) return [];
   // 必要人数の時間帯が重なっていても 1 本にまとめる: 5 分ごとに「足りない人数の最大」を見て、同じ人数が続く所を 1 枠にする
   const lo = Math.min(...saved.map(o => o.from)), hi = Math.max(...saved.map(o => o.to)), out = [];
+  // お店の設定で「1人も入っていない時間だけ」にしたときは、だれかがシフトに入っている時間は出さない
+  const busy = S.settings.openMode === "empty" ? workIntervals(ds) : null;
   let cur = null;
   for (let t = lo; t < hi; t += 5) {
-    const inSaved = saved.some(o => o.from <= t && t < o.to);
+    const inSaved = saved.some(o => o.from <= t && t < o.to) && !(busy && busy.some(([a, b]) => a <= t && t < b));
     const n = inSaved ? Math.max(0, ...sg.filter(x => x.from <= t && t < x.to).map(x => x.short)) : 0;
     if (cur && cur.short === n) cur.to = t + 5;
     else { if (cur) out.push(cur); cur = n > 0 ? { from: t, to: t + 5, short: n } : null; }
   }
   if (cur) out.push(cur);
   return out;
+}
+// その日のシフトが入っている区間 [from, to]（分は当日 0:00 起点。前日・翌日にまたがる分も含む）
+function workIntervals(ds) {
+  const d = parseYmd(ds), prev = ymd(addDays(d, -1)), next = ymd(addDays(d, 1)), iv = [];
+  for (const s of S.shifts) {
+    const off = s.date === ds ? 0 : s.date === prev ? -1440 : s.date === next ? 1440 : null; if (off === null) continue;
+    const sp = span(s); if (sp) iv.push([sp.a + off, sp.b + off]);
+  }
+  return iv;
 }
 const openText = o => `${fmtT(o.from)}–${fmtT(o.to)}`;
 // お店の開始〜終了のうち、シフトが 1 人も入っていない区間を { from, to } で返す（分は当日 0:00 起点）
@@ -1170,7 +1181,7 @@ function renderStaff() {
       <form class="form" id="set-form" data-form="settings">
         <label class="f full">お店の名前<input id="set-name" data-bind="setf.storeName" value="${esc(sf.storeName)}" maxlength="40" placeholder="例: カフェ文京店"></label>
         <label class="f">希望の提出期限（前月の何日）<input type="number" id="set-dl" data-bind="setf.deadlineDay" value="${esc(sf.deadlineDay)}" min="1" max="31"></label>
-        <span></span>
+        <label class="f">募集中に出す時間<select id="set-openmode" data-bind="setf.openMode"><option value="short" ${sf.openMode !== "empty" ? "selected" : ""}>人数が足りない時間すべて</option><option value="empty" ${sf.openMode === "empty" ? "selected" : ""}>1人も入っていない時間だけ</option></select></label>
         <label class="f">タイムラインの開始<input type="time" id="set-open" data-bind="setf.open" value="${esc(hoursToHm(sf.open))}" step="60"></label>
         <label class="f">タイムラインの終了<input type="time" id="set-close" data-bind="setf.close" value="${esc(hoursToHm(sf.close))}" step="60"></label>
         <p class="hint full">分単位で入れられます（例: 8:30〜22:45）。夜勤まで表示したいときは、終了を開始より早い時刻にすると翌朝の時刻として扱います（例: 開始 17:00・終了 5:00 で翌朝 5:00 まで）。終了は翌朝 6:00 までにできます。</p>
@@ -1689,7 +1700,7 @@ document.addEventListener("submit", async e => {
       rules.push({ overMin, breakMin });
     }
     rules.sort((a, b) => a.overMin - b.overMin);
-    const data = { storeName: String(f.storeName || "").trim(), deadlineDay: Math.min(31, Math.max(1, Number(f.deadlineDay) || 20)), open, close, breakRules: rules };
+    const data = { storeName: String(f.storeName || "").trim(), deadlineDay: Math.min(31, Math.max(1, Number(f.deadlineDay) || 20)), openMode: f.openMode === "empty" ? "empty" : "short", open, close, breakRules: rules };
     const ok = await write(() => S.db.doc("settings/main").set(data), "設定を保存しました");
     if (ok) S.setf = null;
   }
