@@ -207,6 +207,11 @@ table { border-collapse: collapse; width: 100%; }
 .linkbtn { background: none; border: 0; padding: 0 2px; color: var(--accent, #2148C9); text-decoration: underline; cursor: pointer; font: inherit; min-width: 5.5em; text-align: left; }
 .reqgrp { display: flex; flex-direction: column; gap: 4px; font-size: 13.5px; }
 .reqline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.reqline.wk { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; column-gap: 8px; }
+.rqmain { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.wkstat, .wkhead { margin-left: auto; font-family: var(--f-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wkhead { float: right; letter-spacing: 0; font-weight: 400; }
+.wkstat.over { color: var(--ng); font-weight: 700; }
 .mark { font-weight: 700; width: 1.4em; text-align: center; }
 
 .form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -642,12 +647,18 @@ function renderDay() {
   }
   // 希望
   const rq = reqsOnDay(S.sel);
-  h += `<div class="section-title">この日の希望</div>`;
+  const wk = monWeek(S.sel), wkSet = new Set(wk);
+  // その週（月〜日）に入っている日数と実働の合計。週の休み希望を超えていたら赤
+  const wkStat = id => {
+    const ss = S.shifts.filter(s => s.staffId === id && wkSet.has(s.date)), n = new Set(ss.map(s => s.date)).size, m = ss.reduce((t, s) => t + calc(s).work, 0), off = offWeekOf(id);
+    return `<span class="wkstat${off != null && n > 7 - off ? " over" : ""}">${n}日・${Math.floor(m / 60)}h${m % 60 ? pad(Math.round(m % 60)) : ""}</span>`;
+  };
+  h += `<div class="section-title">この日の希望${rq.length ? `<span class="wkhead">週 ${wk[0].slice(5).replace("-", "/").replace(/(^|\/)0/g, "$1")}〜${wk[6].slice(5).replace("-", "/").replace(/(^|\/)0/g, "$1")} の勤務</span>` : ""}</div>`;
   if (!rq.length) h += `<p class="hint">提出された希望はありません。</p>`;
   else h += `<div class="reqgrp">` + ["ok", "part", "ng"].flatMap(k => rq.filter(r => r.k === k).map(r => {
     const already = list.some(s => s.staffId === r.staffId);
     const add = S.admin && k !== "ng" && !already ? `<button class="btn small" id="fill-${r.staffId}" data-act="fillFromReq" data-id="${r.staffId}">シフトに入れる</button>` : "";
-    return `<div class="reqline"><span class="mark ${k}">${MARK[k]}</span><span class="dot" style="${colorVar(staffById(r.staffId))}"></span>${esc(nameOf(r.staffId))}${k === "part" && r.start ? ` <span class="mono muted">${r.start}–${r.end}</span>` : ""}${already ? `<span class="hint">配置済み</span>` : ""}${add}</div>`;
+    return `<div class="reqline wk"><span class="mark ${k}">${MARK[k]}</span><span class="dot" style="${colorVar(staffById(r.staffId))}"></span><span class="rqmain">${esc(nameOf(r.staffId))}${k === "part" && r.start ? ` <span class="mono muted">${r.start}–${r.end}</span>` : ""}${already ? `<span class="hint">配置済み</span>` : ""}${add}</span>${wkStat(r.staffId)}</div>`;
   })).join("") + `</div>`;
   // 追加フォーム
   if (S.admin && S.staff.length) {
