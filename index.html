@@ -462,6 +462,8 @@ function workIntervals(ds) {
   }
   return iv;
 }
+// 表やPDF用: 人数ちがいで分かれた枠を、時間がつながっていれば 1 本にまとめる（例: 9:15–16:30）
+const openRanges = ds => openOn(ds).reduce((r, o) => { const l = r[r.length - 1]; if (l && l.to === o.from) l.to = o.to; else r.push({ from: o.from, to: o.to }); return r; }, []);
 const openText = o => `${fmtT(o.from)}–${fmtT(o.to)}`;
 // お店の開始〜終了のうち、シフトが 1 人も入っていない区間を { from, to } で返す（分は当日 0:00 起点）
 function emptyTimes(ds) {
@@ -573,7 +575,7 @@ function monthGrid() {
     const d = addDays(gs, i), ds = ymd(d), out = d.getMonth() !== first.getMonth();
     const list = shiftsOn(ds);
     const op = out ? [] : openOn(ds);
-    const chips = (op.length ? `<span class="chip open" title="${esc(op.map(o => `${openText(o)} ${o.short}人`).join(" / "))}">募集 <i>${shortT(clock(op[0].from))}-${op[0].to >= 1440 ? "翌" : ""}${shortT(clock(op[0].to))} ${op[0].short}人${op.length > 1 ? ` ほか${op.length - 1}` : ""}</i></span>` : "") + list.slice(0, 3).map(s => `<span class="chip" style="${colorVar(staffById(s.staffId))}">${esc(nameOf(s.staffId))} <i>${shortT(s.start)}-${shortT(s.end)}</i></span>`).join("")
+    const chips = (op.length ? `<span class="chip open" title="${esc(op.map(o => `${openText(o)} ${o.short}人`).join(" / "))}">募集 <i>${(() => { const rg = openRanges(ds); return `${shortT(clock(rg[0].from))}-${rg[0].to >= 1440 ? "翌" : ""}${shortT(clock(rg[0].to))}${rg.length > 1 ? ` ほか${rg.length - 1}` : ""}`; })()}</i></span>` : "") + list.slice(0, 3).map(s => `<span class="chip" style="${colorVar(staffById(s.staffId))}">${esc(nameOf(s.staffId))} <i>${shortT(s.start)}-${shortT(s.end)}</i></span>`).join("")
       + (list.length > 3 ? `<span class="more">ほか${list.length - 3}人</span>` : "");
     const sg = out ? [] : shortages(ds);
     const shortBadge = sg.length && !op.length ? `<span class="short" title="${esc(sg.map(shortText).join(" / "))}">${sg[0].short}人不足<span class="det"> ${shortT(clock(sg[0].from))}-${sg[0].to >= 1440 ? "翌" : ""}${shortT(clock(sg[0].to))}${sg.length > 1 ? ` ほか${sg.length - 1}` : ""}</span></span>` : "";
@@ -600,7 +602,7 @@ function weekTable() {
     }
     h += `</tr>`;
   }
-  if (days.some(ds => openOn(ds).length)) h += `<tr><th class="name need-ng">募集中</th>` + days.map(ds => `<td class="${ds === S.sel ? "sel" : ""}" data-act="pick" data-d="${ds}">${openOn(ds).map(o => `<div class="chip open" style="white-space:normal">${openText(o)} ${o.short}人</div>`).join("")}</td>`).join("") + `</tr>`;
+  if (days.some(ds => openOn(ds).length)) h += `<tr><th class="name need-ng">募集中</th>` + days.map(ds => `<td class="${ds === S.sel ? "sel" : ""}" data-act="pick" data-d="${ds}">${openRanges(ds).map(o => `<div class="chip open" style="white-space:normal">${openText(o)}</div>`).join("")}</td>`).join("") + `</tr>`;
   h += `</tbody><tfoot><tr><td>人数 / 実働</td>` + days.map(ds => { const l = shiftsOn(ds); const w = l.reduce((a, s) => a + calc(s).work, 0); return `<td class="num">${l.length}人 / ${hrs(w)}</td>`; }).join("") + `</tr>`;
   const weekShort = days.map(shortages);
   if (weekShort.some(x => x.length)) h += `<tr class="shortrow"><td>人が足りない時間</td>` + weekShort.map(sg => `<td>${sg.map(s => `<div class="mono">${fmtT(s.from)}–${fmtT(s.to)}<br>${s.short}人不足</div>`).join("")}</td>`).join("") + `</tr>`;
@@ -944,7 +946,7 @@ function drawSharePages(pages) {
   const base = 58, lineH = 27;
   const rowH = (st, wk) => Math.max(base, ...wk.map(dt => { const l = shiftsOf(st.id, dt); return l.length * lineH + (l.some(s => s.note) ? 20 : 0) + 18; }));
   const memoH = 50, headH = 64, labelH = 40, gap = 20;
-  const openH = wk => { const n = Math.max(0, ...wk.map(dt => openOn(ds(dt)).length)); return n ? Math.max(base, n * lineH + 18) : 0; };
+  const openH = wk => { const n = Math.max(0, ...wk.map(dt => openRanges(ds(dt)).length)); return n ? Math.max(base, n * lineH + 18) : 0; };
   const blockH = wk => labelH + headH + memoH + staff.reduce((a, st) => a + rowH(st, wk), 0) + openH(wk) + gap;
   const titleH = 70, footH = 90, avail = H - 2 * M - titleH - footH;
   // ページに入るだけの週を詰める
@@ -1003,9 +1005,9 @@ function drawSharePages(pages) {
       if (oh) {
         box(M, y, nameW, oh, "#FBE9E7"); c.fillStyle = C.sun; c.textAlign = "center"; fitText(c, "募集中", M + nameW / 2, y + oh / 2, nameW - 20, 700, 26, F);
         wk.forEach((dt, i) => {
-          const x = M + nameW + i * colW, list = openOn(ds(dt)); box(x, y, colW, oh, "#FFFFFF");
+          const x = M + nameW + i * colW, list = openRanges(ds(dt)); box(x, y, colW, oh, "#FFFFFF");
           let ty = y + oh / 2 - (list.length - 1) * lineH / 2; c.fillStyle = C.sun; c.textAlign = "center";
-          for (const o of list) { fitText(c, `${hm(clock(o.from))}〜${o.to > 1440 ? "翌" : ""}${hm(clock(o.to))} ${o.short}人`, x + colW / 2, ty, colW - 12, 600, 22, F); ty += lineH; }
+          for (const o of list) { fitText(c, `${hm(clock(o.from))}〜${o.to > 1440 ? "翌" : ""}${hm(clock(o.to))}`, x + colW / 2, ty, colW - 12, 600, 22, F); ty += lineH; }
         });
         y += oh;
       }
