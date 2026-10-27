@@ -75,6 +75,8 @@ h1, h2, h3 { text-wrap: balance; margin: 0; }
 .gate-admin { border-top: 1px solid var(--line); padding-top: 12px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .uidbox { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: var(--sunken); color: var(--ink); min-width: 0; flex: 1 1 16em; }
 .invite { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; grid-column: 2 / 4; }
+.viewlink { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.viewlink input { flex: 1 1 14em; min-width: 0; border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; font-size: 12px; background: var(--sunken); color: var(--ink); font-family: var(--f-mono); }
 .invite input { flex: 1 1 14em; min-width: 0; border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; font-size: 12px; background: var(--sunken); color: var(--ink); font-family: var(--f-mono); }
 .role { font-size: 12px; letter-spacing: .08em; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
 .role.admin { border-color: var(--accent); color: var(--accent); }
@@ -289,7 +291,7 @@ label.f, span.f { display: flex; flex-direction: column; gap: 4px; font-size: 12
 <script>
 "use strict";
 const GCAL = "Google Calendar";
-window.addEventListener("hashchange", () => { if (/^#join=/.test(location.hash)) location.reload(); });
+window.addEventListener("hashchange", () => { if (/^#(join|view)=/.test(location.hash)) location.reload(); });
 const WD = ["日", "月", "火", "水", "木", "金", "土"];
 const TABS = [["cal", "カレンダー"], ["req", "希望シフト"], ["sum", "勤務時間・給料"], ["staff", "スタッフ・設定"]];
 const MARK = { ok: "〇", part: "△", ng: "×" };
@@ -373,7 +375,7 @@ const pref = { get(k, d) { try { return localStorage.getItem("sb." + k) ?? d; } 
 const now = new Date();
 const S = {
   dbState: "loading", dbErr: "", db: null, auth: null, authUser: null, adminEmail: "", gate: null,
-  admin: false, role: "guest", me: "", tokens: {}, invite: null,
+  admin: false, role: "guest", me: "", tokens: {}, invite: null, viewToken: "",
   staff: [], shifts: [], reqs: [], settings: { storeName: "", deadlineDay: 20, open: 8, close: 24 },
   tab: pref.get("tab", "cal"), calMode: pref.get("calMode", "month"), sel: ymd(now),
   form: blankForm(), confirmDel: null, emptyFuture: true, emptyOpen: true,
@@ -507,13 +509,15 @@ function render() {
   document.getElementById("acct").innerHTML = S.dbState === "loading" ? `<span class="role">読み込み中</span>`
     : S.admin ? `<span class="role admin">管理者</span><button class="btn small" id="logout" data-act="logout">ログアウト</button>`
     : S.role === "member" ? `<span class="role">スタッフ${meName ? "：" + esc(meName) : ""}</span><button class="btn small" id="login" data-act="login" title="店長（管理者）の Google アカウントで入り直します">店長ログイン</button>`
+    : S.role === "viewer" ? `<span class="role">見るだけ</span><button class="btn small" id="login" data-act="login" title="店長（管理者）の Google アカウントで入り直します">店長ログイン</button>`
     : S.authUser && !S.authUser.isAnonymous ? `<button class="btn small" id="logout" data-act="logout">ログアウト</button>` : "";
   const ready = S.dbState === "ready";
-  const tabs = !ready ? [] : S.admin ? [TABS[0], ["reqcal", "希望カレンダー"], ...TABS.slice(1)] : TABS;
-  if (S.tab === "reqcal" && !S.admin && ready) S.tab = "cal";
+  const viewer = S.role === "viewer";
+  const tabs = !ready ? [] : S.admin ? [TABS[0], ["reqcal", "希望カレンダー"], ...TABS.slice(1)] : viewer ? [TABS[0], ["reqcal", "希望カレンダー"], ["req", "希望の一覧"]] : TABS;
+  if (ready && !tabs.some(([k]) => k === S.tab)) S.tab = "cal";
   document.getElementById("tabs").innerHTML = tabs.map(([k, l]) => `<button role="tab" id="tab-${k}" aria-selected="${S.tab === k}" data-act="tab" data-v="${k}">${l}</button>`).join("");
   let html = banners();
-  if (ready) html += S.tab === "cal" ? renderCal() : S.tab === "reqcal" ? (S.admin ? renderReqCal() : "") : S.tab === "req" ? renderReq() : S.tab === "sum" ? renderSum() : renderStaff();
+  if (ready) html += S.tab === "cal" ? renderCal() : S.tab === "reqcal" ? (S.admin || viewer ? renderReqCal() : "") : S.tab === "req" ? renderReq() : S.tab === "sum" ? renderSum() : renderStaff();
   else if (S.dbState !== "loading") html += renderGate();
   document.getElementById("main").innerHTML = html;
   document.getElementById("toast-root").innerHTML = S.toast ? `<div class="toast ${S.toast.err ? "err" : ""}" role="status">${esc(S.toast.text)}</div>` : "";
@@ -530,6 +534,7 @@ function renderGate() {
     h += `<p class="hint">別のアカウントで入り直すときは、右上の「ログアウト」を押してください。</p>`;
   }
   h += `<p>スタッフの方は、<b>店長から届いた招待リンク</b>を開いてください。ログインは要りません。一度開けば、次からはこのページを開くだけで使えます。</p>
+    <p class="hint">「見るだけリンク」をもらった方も、そのリンクを開けばログインなしで見られます。</p>
     <div class="gate-admin"><p class="hint">店長（管理者）の方はこちら</p><button class="btn" id="login" data-act="login">Google でログイン</button></div></section>`;
   return h;
 }
@@ -639,7 +644,7 @@ function renderDay() {
   }
   // 募集中の枠
   const op = openOn(S.sel);
-  if (op.length) h += `<div class="section-title">募集中の枠</div>` + op.map((o, i) => `<div class="open-row"><span class="mono need-ng">${openText(o)}</span><span class="need-ng">あと${o.short}人</span>${S.admin ? `<button class="btn small" id="open-fill-${i}" data-act="openFill" data-a="${o.from}" data-b="${o.to}">人を決めて入れる</button>` : `<span class="hint">入れる人は店長に伝えてください</span>`}</div>`).join("")
+  if (op.length) h += `<div class="section-title">募集中の枠</div>` + op.map((o, i) => `<div class="open-row"><span class="mono need-ng">${openText(o)}</span><span class="need-ng">あと${o.short}人</span>${S.admin ? `<button class="btn small" id="open-fill-${i}" data-act="openFill" data-a="${o.from}" data-b="${o.to}">人を決めて入れる</button>` : S.role === "viewer" ? "" : `<span class="hint">入れる人は店長に伝えてください</span>`}</div>`).join("")
     + (S.admin ? `<div class="row" style="margin-top:6px"><button class="btn small" id="open-del" data-act="openDel">この日の募集中の枠を消す</button></div>` : "");
   // 1 人もいない時間
   const em = emptyTimes(S.sel);
@@ -759,6 +764,19 @@ function copyText(el) {
   try { navigator.clipboard.writeText(el.value).then(done, fallback); } catch { fallback(); }
 }
 
+// 見るだけリンク: #view=<合言葉>。開いた人はログインなしで、カレンダー（確定シフト・募集中）と希望を見られる
+const viewUrl = () => S.viewToken ? `${pageUrl()}#view=${S.viewToken}` : "";
+function viewLinkBox() {
+  let h = `<div class="section-title">見るだけリンク</div>
+    <p class="hint" style="margin:0 0 8px">スタッフ以外の人に送るリンクです。開いた人は、ログインもメールアドレスもなしで、カレンダー（決まったシフト・募集中）と全員の希望シフトを<b>見るだけ</b>できます。書き込みや提出はできず、時給・給料・メールアドレスは見えません。</p>`;
+  if (!S.viewToken) return h + `<button class="btn small" id="view-make" data-act="makeView">見るだけリンクを作る</button>`;
+  h += `<div class="viewlink"><input id="view-url" readonly value="${esc(viewUrl())}" aria-label="見るだけリンク"><button class="btn small" id="view-copy" data-act="copyView">コピー</button><button class="btn small" id="view-remake" data-act="makeView">作り直す</button>`;
+  h += S.confirmDel === "view"
+    ? `<button class="btn small danger" id="view-stop-yes" data-act="stopView">止める</button><button class="btn small" id="view-stop-no" data-act="cancelDel">やめる</button>`
+    : `<button class="btn small" id="view-stop" data-act="askDel" data-id="view">止める</button>`;
+  return h + `</div><p class="hint" style="margin:6px 0 0">作り直すか止めると、前のリンクとそのリンクで開いた端末は、すぐに見られなくなります。</p>`;
+}
+
 /* 希望シフト */
 function renderReq() {
   const first = monthFirst(), dim = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate(), r = S.req;
@@ -766,6 +784,7 @@ function renderReq() {
   const own = r.staffId ? reqOf(r.staffId) : null;
   let h = `<section class="panel"><div class="toolbar">${monthNav(monthLabel() + "の希望")}${dl ? `<span class="hint">提出期限 ${prev.getMonth() + 1}月${dl}日</span>` : ""}</div>`;
   if (!S.staff.length) return h + `<p class="muted">スタッフが登録されると、ここから希望シフトを出せます。</p></section>` + matrix();
+  if (S.role === "viewer") return h + `<p class="hint" style="margin:0">スタッフ全員が出した希望の一覧です。〇 は終日OK、△ は時間指定（数字にカーソルを合わせると時間が出ます）、× は入れない日です。日付ごとに見るときは「希望カレンダー」を開いてください。</p></section>` + matrix();
   h += `<div class="row" style="margin-bottom:12px">${S.role === "member"
     ? `<span class="f" style="min-width:12em">あなたの名前<b style="color:var(--ink);font-size:16px">${esc(nameOf(S.me))}</b></span>`
     : `<label class="f" style="min-width:12em">${S.admin ? "だれの希望" : "あなたの名前"}<select id="req-staff" data-bind="req.staffId"><option value="">選んでください</option>${S.staff.map(st => `<option value="${st.id}" ${st.id === r.staffId ? "selected" : ""}>${esc(st.name)}</option>`).join("")}</select></label>`}
@@ -1164,6 +1183,7 @@ function renderStaff() {
         ? `<input id="inv-${st.id}" readonly value="${esc(inviteUrl(st.id))}" aria-label="${esc(st.name)}さんの招待リンク"><button class="btn small" id="invc-${st.id}" data-act="copyInvite" data-id="${st.id}">招待リンクをコピー</button><button class="btn small" id="invr-${st.id}" data-act="makeInvite" data-id="${st.id}">作り直す</button>`
         : `<button class="btn small" id="invm-${st.id}" data-act="makeInvite" data-id="${st.id}">招待リンクを作る</button>`}</span>` : ""}</li>`;
   }).join("") + `</ul>` : `<p class="muted">まだ誰も登録されていません。${S.admin ? "右のフォームから追加してください。" : ""}</p>`;
+  if (S.admin) h += viewLinkBox();
   h += `</section>`;
   if (S.admin) {
     const f = S.sf;
@@ -1215,7 +1235,7 @@ function renderReqCal() {
   const weeks = Math.ceil((first.getDay() + dim) / 7), gs = startOfWeek(first), todayS = ymd(new Date());
   const subm = S.staff.filter(st => reqOf(st.id)), missing = S.staff.filter(st => !reqOf(st.id));
   let h = `<section class="panel"><div class="toolbar">${monthNav(monthLabel() + "の希望カレンダー")}<span class="hint">提出 ${subm.length} / ${S.staff.length} 人${missing.length ? `（未提出: ${missing.map(st => esc(st.name)).join("、")}）` : ""}</span></div>`;
-  h += `<p class="hint" style="margin:0 0 10px">全員の希望を日付ごとに並べています。「可」は 〇 と △ の人数、「必要」はその日の必要人数の最大です。日付を押すと、その日のシフトを組む画面に移ります。</p>`;
+  h += `<p class="hint" style="margin:0 0 10px">全員の希望を日付ごとに並べています。「可」は 〇 と △ の人数、「必要」はその日の必要人数の最大です。日付を押すと、${S.admin ? "その日のシフトを組む画面" : "その日のシフトと希望"}に移ります。</p>`;
   h += `<div class="month">` + WD.map((w, i) => `<div class="wd d${i}">${w}</div>`).join("");
   for (let i = 0; i < weeks * 7; i++) {
     const d = addDays(gs, i), ds = ymd(d), out = d.getMonth() !== first.getMonth();
@@ -1230,7 +1250,7 @@ function renderReqCal() {
     h += `<button class="cell rqcell d${d.getDay()} ${out ? "out" : ""} ${ds === todayS ? "today" : ""}" id="rc-${ds}" data-act="openDay" data-d="${ds}" aria-label="${d.getMonth() + 1}月${d.getDate()}日の希望"><span class="dnum">${d.getDate()}</span>${body}</button>`;
   }
   h += `</div></section>`;
-  return h + autoPanel();
+  return S.admin ? h + autoPanel() : h;
 }
 
 /* 希望からシフトを自動で組む: 必要人数に足りない時間を、その月の勤務時間が少ない人から順に埋める */
@@ -1618,6 +1638,15 @@ const A = {
   async logout() { try { await S.auth.signOut(); } catch {} },
   copyUid() { copyText(document.getElementById("uid-box")); return true; },
   copyInvite(t) { copyText(document.getElementById("inv-" + t.dataset.id)); return true; },
+  copyView() { copyText(document.getElementById("view-url")); return true; },
+  async makeView() {
+    const again = !!S.viewToken;
+    await write(() => S.db.doc("viewTokens/main").set({ token: newToken() }), again ? "見るだけリンクを作り直しました。前のリンクは使えなくなります。" : "見るだけリンクを作りました。コピーして送ってください。");
+  },
+  async stopView() {
+    S.confirmDel = null;
+    await write(() => S.db.doc("viewTokens/main").delete(), "見るだけリンクを止めました。前のリンクでは見られなくなります。");
+  },
   async makeInvite(t) {
     const id = t.dataset.id, again = !!S.tokens[id];
     await write(async () => {
@@ -1711,7 +1740,7 @@ document.addEventListener("submit", async e => {
 
 /* ---------- data ---------- */
 let unsubShifts = null, unsubReqs = null, subKey = "", unsubs = [];
-function onDbErr(e) { S.dbErr = e && e.code === "permission-denied" ? "このページを見る権限がなくなりました。店長から新しい招待リンクをもらってください。" : "データの更新が止まりました。ページを開き直してください。"; render(); }
+function onDbErr(e) { S.dbErr = e && e.code === "permission-denied" ? (S.role === "viewer" ? "この見るだけリンクは使えなくなりました。店長から新しいリンクをもらってください。" : "このページを見る権限がなくなりました。店長から新しい招待リンクをもらってください。") : "データの更新が止まりました。ページを開き直してください。"; render(); }
 function stopAll() {
   for (const u of unsubs) u(); unsubs = [];
   if (unsubShifts) unsubShifts(); if (unsubReqs) unsubReqs(); unsubShifts = unsubReqs = null; subKey = "";
@@ -1736,6 +1765,7 @@ function startData() {
   if (S.admin) {
     unsubs.push(db.collection("private").onSnapshot(snap => { const p = {}; for (const d of snap.docs) p[d.id] = d.data(); S.priv = p; render(); }, onDbErr));
     unsubs.push(db.collection("staffTokens").onSnapshot(snap => { const t = {}; for (const d of snap.docs) t[d.id] = d.data().token; S.tokens = t; render(); }, onDbErr));
+    unsubs.push(db.doc("viewTokens/main").onSnapshot(snap => { S.viewToken = (snap.exists && snap.data().token) || ""; render(); }, onDbErr));
   }
   unsubs.push(db.doc("settings/staffing").onSnapshot(snap => { S.staffing = snap.exists && snap.data().byDow ? { byDow: snap.data().byDow } : { byDow: {} }; render(); }, onDbErr));
   unsubs.push(db.doc("settings/main").onSnapshot(snap => { if (snap.exists) S.settings = { ...S.settings, ...snap.data() }; render(); }, onDbErr));
@@ -1751,6 +1781,11 @@ function readJoin() {
   const m = /^#join=([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)$/.exec(location.hash || "");
   return m ? { staffId: m[1], token: m[2] } : null;
 }
+// 見るだけリンク: #view=<合言葉>
+function readView() {
+  const m = /^#view=([A-Za-z0-9_-]+)$/.exec(location.hash || "");
+  return m ? { token: m[1] } : null;
+}
 function clearHash() { try { history.replaceState(null, "", location.pathname + location.search); } catch {} }
 
 render();
@@ -1763,14 +1798,14 @@ render();
   // 管理者は、設定したアドレスで Google ログインした人だけ（ルール側でも同じ条件で守る）
   const isAdminUser = u => !!S.adminEmail && !u.isAnonymous && u.emailVerified && (u.email || "").toLowerCase() === S.adminEmail
     && u.providerData.some(p => p && p.providerId === "google.com");
-  let join = readJoin();
+  let join = readJoin(), view = readView();
   auth.onAuthStateChanged(async u => {
     stopAll(); S.authUser = u; S.admin = false; S.role = "guest"; S.me = ""; S.gate = null;
     if (!u) {
-      if (join) { try { await auth.signInAnonymously(); } catch (e) { S.dbState = "guest"; S.gate = { kind: "err", text: "参加の準備に失敗しました。通信状況を確かめて、招待リンクを開き直してください。" }; render(); } return; }
+      if (join || view) { try { await auth.signInAnonymously(); } catch (e) { S.dbState = "guest"; S.gate = { kind: "err", text: "準備に失敗しました。通信状況を確かめて、リンクを開き直してください。" }; render(); } return; }
       S.dbState = "guest"; render(); return;
     }
-    if (isAdminUser(u)) { S.admin = true; S.role = "admin"; join = null; clearHash(); startData(); return; }
+    if (isAdminUser(u)) { S.admin = true; S.role = "admin"; join = view = null; clearHash(); startData(); return; }
     S.dbState = "loading"; render();
     if (join) {
       try {
@@ -1782,8 +1817,18 @@ render();
       }
       join = null; clearHash();
     }
+    if (view) {
+      try { await db.doc("viewers/" + u.uid).set({ token: view.token, createdAt: Date.now() }); }
+      catch (e) {
+        S.dbState = "guest"; S.gate = { kind: "err", text: "この見るだけリンクは使えません。リンクが古いか、途中で切れている可能性があります。店長から新しいリンクをもらってください。" };
+        view = null; clearHash(); render(); return;
+      }
+      view = null; clearHash();
+    }
     let ses = null; try { ses = await db.doc("sessions/" + u.uid).get(); } catch {}
     if (ses && ses.exists) { S.role = "member"; S.me = ses.data().staffId; S.req.staffId = S.me; pref.set("me", S.me); startData(); return; }
+    let vw = null; try { vw = await db.doc("viewers/" + u.uid).get(); } catch {}
+    if (vw && vw.exists) { S.role = "viewer"; startData(); return; }
     S.dbState = "guest";
     if (!u.isAnonymous) S.gate = { kind: "uid", text: u.email || "" };
     render();

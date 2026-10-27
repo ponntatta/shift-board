@@ -20,8 +20,16 @@ service cloud.firestore {
     function myStaffId() {
       return get(/databases/$(database)/documents/sessions/$(request.auth.uid)).data.staffId;
     }
+    // 見るだけリンクで開いた端末: viewers/<uid> の合言葉が、今の見るだけリンク（viewTokens/main）と同じ
+    function isViewer() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/viewers/$(request.auth.uid))
+        && exists(/databases/$(database)/documents/viewTokens/main)
+        && get(/databases/$(database)/documents/viewers/$(request.auth.uid)).data.token
+           == get(/databases/$(database)/documents/viewTokens/main).data.token;
+    }
     function canRead() {
-      return isAdmin() || isMember();
+      return isAdmin() || isMember() || isViewer();
     }
 
     // スタッフの名前と色、シフト、お店の設定と必要人数: 参加者が読み、店長だけが書く
@@ -43,6 +51,21 @@ service cloud.firestore {
         && id == request.resource.data.staffId + "_" + request.resource.data.month
       );
       allow delete: if isAdmin();
+    }
+
+    // 見るだけリンクの合言葉: 店長だけ。作り直すか消すと、前のリンクで開いた端末は読めなくなる
+    match /viewTokens/{id} { allow read, write: if isAdmin(); }
+
+    // 見るだけの記録: 見るだけリンクの合言葉が正しいときだけ、自分の分を作れる（書き込みの権限は増えない）
+    match /viewers/{uid} {
+      allow get: if isAdmin() || (request.auth != null && request.auth.uid == uid);
+      allow list, delete: if isAdmin();
+      allow create, update: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(["token", "createdAt"])
+        && request.resource.data.token is string
+        && exists(/databases/$(database)/documents/viewTokens/main)
+        && get(/databases/$(database)/documents/viewTokens/main).data.token == request.resource.data.token;
     }
 
     // 参加の記録: 招待リンクの合言葉が正しいときだけ、自分の分を作れる
