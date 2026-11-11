@@ -818,7 +818,7 @@ function renderReq() {
   if (parts.length) h += `<div class="section-title">△ の日の時間</div><div class="partlist">` + parts.map(k => { const v = r.days[k]; return `<div class="partrow"><span class="mono" style="width:5.5em">${first.getMonth() + 1}/${Number(k)}(${WD[new Date(first.getFullYear(), first.getMonth(), Number(k)).getDay()]})</span><input type="time" id="rp-s-${k}" data-bind="req.days.${k}.start" value="${v.start || ""}" step="300" aria-label="${Number(k)}日の開始"> 〜 <input type="time" id="rp-e-${k}" data-bind="req.days.${k}.end" value="${v.end || ""}" step="300" aria-label="${Number(k)}日の終了"></div>`; }).join("") + `</div>`;
   h += `<label class="f" style="margin-top:14px">店長へのメモ<textarea id="req-note" data-bind="req.note" placeholder="例: 15日は午後から授業があります">${esc(r.note)}</textarea></label>`;
   const ro = !(S.admin || (S.role === "member" && r.staffId === S.me));
-  h += `<div class="row" style="margin-top:12px"><button class="btn primary" id="req-submit" data-act="reqSubmit" ${ro ? "disabled" : ""}>${own ? "希望を更新する" : "希望を提出する"}</button>${r.dirty ? `<button class="btn" id="req-reset" data-act="reqReset">変更を取り消す</button>` : ""}${ro ? `<span class="hint">ほかの人の希望は出せません。自分の希望は、店長から届いた招待リンクで開くと出せます。</span>` : ""}</div>`;
+  h += `<div class="row" style="margin-top:12px"><button class="btn primary" id="req-submit" data-act="reqSubmit" ${ro ? "disabled" : ""}>${own ? "希望を更新する" : "希望を提出する"}</button>${r.dirty ? `<button class="btn" id="req-reset" data-act="reqReset">変更を取り消す</button>` : ""}<button class="btn" id="pdf-myreq" data-act="pdf" data-v="myreq" ${S.pdfBusy ? "disabled" : ""}>${S.pdfBusy ? "PDF を作成中…" : (S.role === "member" ? "自分の希望を PDF で保存" : `${esc(nameOf(r.staffId))}さんの希望を PDF で保存`)}</button>${ro ? `<span class="hint">ほかの人の希望は出せません。自分の希望は、店長から届いた招待リンクで開くと出せます。</span>` : ""}</div>`;
   return h + `</section>` + matrix();
 }
 
@@ -1090,6 +1090,60 @@ function drawMinePages(pages, sid) {
   }
   pages.push(cv);
 }
+// 1 人分の希望: 月曜はじまりのカレンダーに 〇△× と時間を大きく書く（人に送って一目でわかるように）
+const MYREQ = { ok: { fill: "#E3F3EA", label: "〇 終日OK" }, part: { fill: "#FFF1D6", label: "△ 時間指定" }, ng: { fill: "#F6E1E0", label: "× 入れない" }, none: { fill: "#FFFFFF", label: "空白 未定" } };
+function drawMyReqPages(pages, sid) {
+  const W = PDF.W, H = PDF.H, M = 80, F = PDF.F, C = { ...SHARE, ...PDF.C }, r = S.req, days = r.days || {};
+  const first = monthFirst(), y0 = first.getFullYear(), m0 = first.getMonth(), dim = new Date(y0, m0 + 1, 0).getDate();
+  const lead = (first.getDay() + 6) % 7, rows = Math.ceil((lead + dim) / 7);
+  const cnt = k => Object.keys(days).filter(d => Number(d) <= dim && days[d] && days[d].k === k).length;
+  const cv = document.createElement("canvas"); cv.width = W; cv.height = H; const c = cv.getContext("2d");
+  c.fillStyle = "#FFFFFF"; c.fillRect(0, 0, W, H); c.textBaseline = "middle";
+  const store = S.settings.storeName ? `${S.settings.storeName}｜` : "";
+  c.fillStyle = C.navy; c.textAlign = "left"; c.font = `700 44px ${F}`;
+  c.fillText(`${store}${y0}年${m0 + 1}月　${nameOf(sid)}さんの希望シフト`, M, M + 24);
+  c.textAlign = "right"; c.font = `600 30px ${F}`;
+  const sum = [["ok", "〇"], ["part", "△"], ["ng", "×"]].map(([k, mk]) => `${mk} ${cnt(k)}日`).join("　");
+  c.fillStyle = C.ink; c.fillText(sum, W - M, M + 24);
+  const pref = prefText(r);
+  const top = M + (pref ? 120 : 80), headH = 56, footH = r.note ? 150 : 90, colW = (W - 2 * M) / 7, rowH = (H - top - headH - footH - M) / rows;
+  if (pref) { c.textAlign = "left"; c.fillStyle = C.muted; c.font = `500 28px ${F}`; c.fillText(`そのほかの希望：${pref}`, M, M + 82); }
+  const box = (x, yy, w, h, fill) => { c.fillStyle = fill; c.fillRect(x, yy, w, h); c.strokeStyle = C.line; c.lineWidth = 2; c.strokeRect(x, yy, w, h); };
+  ["月", "火", "水", "木", "金", "土", "日"].forEach((w, i) => {
+    box(M + i * colW, top, colW, headH, i === 6 ? SHARE.sun : i === 5 ? SHARE.sat : SHARE.head);
+    c.fillStyle = "#FFFFFF"; c.textAlign = "center"; c.font = `500 26px ${F}`; c.fillText(w, M + (i + 0.5) * colW, top + headH / 2);
+  });
+  for (let i = 0; i < rows * 7; i++) {
+    const d = i - lead + 1, x = M + (i % 7) * colW, y = top + headH + Math.floor(i / 7) * rowH;
+    if (d < 1 || d > dim) { box(x, y, colW, rowH, "#F4F5F7"); continue; }
+    const dt = new Date(y0, m0, d), v = days[pad(d)], k = (v && v.k) || "none", hol = jpHoliday(dt), dow = dt.getDay();
+    box(x, y, colW, rowH, MYREQ[k].fill);
+    c.textAlign = "left"; c.fillStyle = dow === 0 || hol ? SHARE.sun : dow === 6 ? SHARE.sat : C.ink; c.font = `700 28px ${F}`;
+    c.fillText(String(d), x + 14, y + 26);
+    if (hol) { c.fillStyle = C.muted; fitText(c, hol, x + 56, y + 26, colW - 68, 500, 20, F); }
+    if (k === "none") continue;
+    const cy = y + 26 + (rowH - 26) / 2;
+    c.textAlign = "center"; c.fillStyle = C[k];
+    if (k === "part" && v.start) {
+      c.font = `700 40px ${F}`; c.fillText(MARK[k], x + colW / 2, cy - 22);
+      fitText(c, `${hm(v.start)}〜${hm(v.end)}`, x + colW / 2, cy + 22, colW - 16, 700, 30, F);
+    } else { c.font = `700 52px ${F}`; c.fillText(MARK[k], x + colW / 2, cy); }
+  }
+  let fy = H - M - footH + 34;
+  if (r.note) {
+    c.textAlign = "left"; c.fillStyle = C.ink; c.font = `500 26px ${F}`;
+    const ln = wrapText(c, `メモ：${r.note}`, W - 2 * M).slice(0, 2); for (const t of ln) { c.fillText(t, M, fy); fy += 36; }
+    fy += 6;
+  }
+  let lx = M + 6;
+  for (const k of ["ok", "part", "ng", "none"]) {
+    c.fillStyle = MYREQ[k].fill; c.fillRect(lx, fy - 13, 26, 26); c.strokeStyle = C.line; c.lineWidth = 2; c.strokeRect(lx, fy - 13, 26, 26);
+    c.fillStyle = C.ink; c.font = `500 22px ${F}`; c.textAlign = "left"; c.fillText(MYREQ[k].label, lx + 36, fy); lx += 36 + c.measureText(MYREQ[k].label).width + 40;
+  }
+  const now = new Date(); c.fillStyle = C.muted; c.font = `400 22px ${F}`; c.textAlign = "right";
+  c.fillText(`${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()} ${pad(now.getHours())}:${pad(now.getMinutes())} 作成`, W - M, fy);
+  pages.push(cv);
+}
 // 希望シフト表
 function drawReqPages(pages) {
   const C = PDF.C, rows = S.staff.map(st => ({ st, r: reqOf(st.id) }));
@@ -1126,15 +1180,15 @@ async function savePdf(kind) {
   try {
     try { await Promise.all([document.fonts.load(`700 30px "Zen Kaku Gothic New"`, "希望"), document.fonts.load(`500 26px "Zen Kaku Gothic New"`, "希望"), document.fonts.load(`400 26px "Zen Kaku Gothic New"`, "希望"), document.fonts.load(`600 26px "IBM Plex Mono"`, "0")]); } catch {}
     const pages = [];
-    const sid = kind === "mine" ? mineWho() : "";
-    if (kind === "mine" && !sid) throw new Error("no staff");
-    if (kind === "req") drawReqPages(pages); else if (kind === "mine") drawMinePages(pages, sid); else drawSharePages(pages);
+    const sid = kind === "mine" ? mineWho() : kind === "myreq" ? S.req.staffId : "";
+    if ((kind === "mine" || kind === "myreq") && !sid) throw new Error("no staff");
+    if (kind === "req") drawReqPages(pages); else if (kind === "mine") drawMinePages(pages, sid); else if (kind === "myreq") drawMyReqPages(pages, sid); else drawSharePages(pages);
     const pdf = new window.jspdf.jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
     pages.forEach((cv, i) => { if (i) pdf.addPage(); pdf.addImage(cv.toDataURL("image/png"), "PNG", 0, 0, 297, 210, undefined, "FAST"); });
     const f = monthFirst(), store = (S.settings.storeName || "").replace(/[\\/:*?"<>|\s]+/g, "");
-    downloadBlob(pdf.output("blob"), kind === "req" ? `希望シフト_${curYm()}.pdf` : kind === "mine" ? `${nameOf(sid).replace(/[\\/:*?"<>|\s]+/g, "")}_${f.getFullYear()}年${f.getMonth() + 1}月シフト.pdf` : `${store ? store + "_" : ""}${f.getFullYear()}年${f.getMonth() + 1}月シフト.pdf`);
+    downloadBlob(pdf.output("blob"), kind === "req" ? `希望シフト_${curYm()}.pdf` : kind === "myreq" ? `${nameOf(sid).replace(/[\\/:*?"<>|\s]+/g, "")}_${f.getFullYear()}年${f.getMonth() + 1}月の希望シフト.pdf` : kind === "mine" ? `${nameOf(sid).replace(/[\\/:*?"<>|\s]+/g, "")}_${f.getFullYear()}年${f.getMonth() + 1}月シフト.pdf` : `${store ? store + "_" : ""}${f.getFullYear()}年${f.getMonth() + 1}月シフト.pdf`);
     S.pdfBusy = false;
-    toast("PDF を保存しました");
+    toast(kind === "myreq" && S.req.dirty ? "PDF を保存しました（まだ提出していない変更も入っています）" : "PDF を保存しました");
   } catch (e) {
     S.pdfBusy = false;
     if (!(e && e.code === "declined")) toast(pdfErrText(e), true);
@@ -1569,7 +1623,7 @@ const A = {
     const ok = await write(() => S.db.doc("settings/staffing").set({ byDow, updatedAt: Date.now() }), "必要人数を保存しました");
     if (ok) S.need = null;
   },
-  pdf(t) { const v = t.dataset.v; savePdf(v === "req" ? "req" : v === "mine" ? "mine" : "share"); return true; },
+  pdf(t) { const v = t.dataset.v; savePdf(v === "req" ? "req" : v === "mine" ? "mine" : v === "myreq" ? "myreq" : "share"); return true; },
   async dmSave() {
     const text = String(S.dmDraft ?? S.dayMemos[S.sel] ?? "").trim().slice(0, 40);
     const ok = await write(() => S.db.doc("settings/dayMemos").set({ byDate: { [S.sel]: text } }, { merge: true }), text ? "店舗メモを保存しました" : "店舗メモを消しました");
